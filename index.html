@@ -126,9 +126,61 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize); resize();
-scene.background = new THREE.Color(0x062b4a);
-scene.add(new THREE.Mesh(new THREE.PlaneGeometry(W * 3, H * 3),
-  new THREE.MeshBasicMaterial({ color: 0x052640 })));
+scene.background = new THREE.Color(0x041d33);
+// deniz altı atmosferi: gradyan su + ışık lekeleri
+{
+  const cv = document.createElement("canvas"); cv.width = 512; cv.height = 512;
+  const g = cv.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, "#11608f"); grad.addColorStop(0.45, "#0a3861"); grad.addColorStop(1, "#021225");
+  g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 30; i++) {
+    g.fillStyle = `rgba(130,205,255,${0.02 + Math.random() * 0.035})`;
+    g.beginPath();
+    g.ellipse(Math.random() * 512, Math.random() * 512, 30 + Math.random() * 90, 18 + Math.random() * 55, Math.random() * Math.PI, 0, Math.PI * 2);
+    g.fill();
+  }
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(W * 3, H * 3),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) })));
+}
+// ışık huzmeleri
+const huzmeler = [];
+{
+  for (let i = 0; i < 4; i++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(70 + i * 24, H * 1.6),
+      new THREE.MeshBasicMaterial({ color: 0xbfe3ff, transparent: true, opacity: 0.045 }));
+    m.position.set(-W / 2 + (i + 0.5) * (W / 4), H * 0.18, -0.5);
+    m.rotation.z = (i % 2 ? -1 : 1) * 0.12;
+    scene.add(m); huzmeler.push(m);
+  }
+}
+// kum tabanı
+{
+  const kum = new THREE.Mesh(new THREE.PlaneGeometry(W * 3, 130),
+    new THREE.MeshBasicMaterial({ color: 0x9c7f4e }));
+  kum.position.set(0, -H / 2 - 40, 0.02);
+  scene.add(kum);
+}
+// yosunlar
+const yosunlar = [];
+{
+  const cv = document.createElement("canvas"); cv.width = 96; cv.height = 256;
+  const ctx = cv.getContext("2d");
+  ctx.strokeStyle = "#2f8f4e"; ctx.lineWidth = 14; ctx.lineCap = "round";
+  for (const [x0, amp] of [[30, 14], [58, 18], [78, 10]]) {
+    ctx.beginPath(); ctx.moveTo(x0, 256);
+    for (let y2 = 256; y2 > 20; y2 -= 16) ctx.lineTo(x0 + Math.sin(y2 / 34) * amp, y2);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 9; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, opacity: 0.85 }));
+    const h = 110 + Math.random() * 130;
+    sp.scale.set(h * 0.45, h, 1);
+    sp.position.set(-W / 2 + 40 + Math.random() * (W - 80), -H / 2 + h / 2 - 20, 0.03);
+    sp.userData.faz = Math.random() * Math.PI * 2;
+    scene.add(sp); yosunlar.push(sp);
+  }
+}
 const bubbles = [];
 {
   const g = new THREE.CircleGeometry(3, 10);
@@ -142,14 +194,22 @@ const bubbles = [];
   }
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
-const radiusOf = (m) => 15 * Math.pow(m, 0.62);
+const radiusOf = (m) => 20 * Math.sqrt(m);
 
 /* ── fish visual factory (expressive face) ─────────────── */
-function fishVisual(color, isPlayer) {
+const TUR_SEKIL = {
+  piranha: { ax: 1.28, ay: 1.04, agiz: 1.7 },
+  yilan:   { ax: 2.0,  ay: 0.78, agiz: 0.8 },
+  fener:   { ax: 1.3,  ay: 1.0,  agiz: 1.0, lure: true },
+  mersin:  { ax: 1.42, ay: 1.06, agiz: 0.9, boy: 1.15 },
+  balon:   { ax: 1.02, ay: 1.1,  agiz: 1.2 },
+};
+function fishVisual(color, isPlayer, tur) {
+  const sekil = TUR_SEKIL[tur] || { ax: 1.45, ay: 1, agiz: 1 };
   const group = new THREE.Group();
   const c = new THREE.Color(color);
   const body = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: c }));
-  body.scale.set(1.45, 1, 1);
+  body.scale.set(sekil.ax, sekil.ay, 1);
   const tail = new THREE.Mesh(new THREE.CircleGeometry(1, 3),
     new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(0.75) }));
   tail.position.x = -1.2; tail.rotation.z = Math.PI / 3;
@@ -160,6 +220,13 @@ function fishVisual(color, isPlayer) {
   const mouth = new THREE.Mesh(new THREE.CircleGeometry(.16, 12), new THREE.MeshBasicMaterial({ color: 0x081522 }));
   mouth.position.set(.95, -.28, .1);
   group.add(tail, body, eyeW, eyeB, mouth);
+  let lure = null;
+  if (tur === "fener") {   // fener balığı: alnında ışıklı yem
+    lure = new THREE.Mesh(new THREE.CircleGeometry(.09, 10),
+      new THREE.MeshBasicMaterial({ color: 0xffe0a0 }));
+    lure.position.set(1.15, .52, .12);
+    group.add(lure);
+  }
   let ring = null;
   if (isPlayer) {
     ring = new THREE.Mesh(new THREE.RingGeometry(1.7, 1.9, 32),
@@ -174,7 +241,7 @@ function fishVisual(color, isPlayer) {
   nameSprite.scale.set(110, 24, 1);
   group.add(nameSprite);
   scene.add(group);
-  return { group, body, tail, eyeW, eyeB, mouth, ring, selRing, nameSprite, label: null, _nameText: "", _lastLabel: null };
+  return { group, body, tail, eyeW, eyeB, mouth, ring, selRing, nameSprite, lure, label: null, _nameText: "", _lastLabel: null, sekil };
 }
 function textSprite(v, text, color, yOfs) {
   if (v._nameText === text) return;
@@ -307,7 +374,7 @@ function bindSocket(socket) {
         snapCur.set(b.id, b);
         if (!snapPrev.has(b.id)) snapPrev.set(b.id, b);
         let f = fishes.get(b.id);
-        if (!f) { f = { visual: fishVisual(b.color, b.player) }; fishes.set(b.id, f); }
+        if (!f) { f = { visual: fishVisual(b.color, b.player, b.tur) }; fishes.set(b.id, f); }
         f.target = b;
         if (b.alive && (!leader || b.kg > leader.kg)) leader = b;
       }
@@ -461,7 +528,9 @@ function renderInspector(id) {
   const k = qaMap.get(id);
   if (!f) return;
   const b = f.target;
-  let html = `<h3>${b.name}</h3><div class="durum">${b.kg} kg · ${b.player ? "player (human)" : "driven by Jev"}</div>`;
+  const turAd = { piranha: "Piranha", yilan: "Eel", fener: "Anglerfish", mersin: "Sturgeon", balon: "Pufferfish" }[b.tur];
+  let html = `<h3>${b.name}</h3><div class="durum">${Math.round(b.kg * 1000)} g${turAd ? " · " + turAd : " · player"} · ${b.player ? "human" : "Jev-driven"}</div>`;
+  if (b.ozellik) html += `<div class="detail">✦ ${b.ozellik}</div>`;
   if (k) html += `<div class="qa"><div class="q">What does it see?</div><div class="gor">👁 ${k.sees}</div></div>`;
   if (!k) { html += "<div class='aciklama'>Waiting for the first Jev decision…</div>"; }
   else {
@@ -531,17 +600,18 @@ function tick(now) {
     v.group.position.x = x; v.group.position.y = y;
     const dir = Math.atan2(b.y - (p ? p.y : b.y), b.x - (p ? p.x : b.x));
     v.group.rotation.z = angLerp(v.group.rotation.z, Number.isFinite(dir) ? dir : (b.dir || 0), Math.min(1, dt * 6));
-    v.body.scale.set(1.45 * r, r, 1);
-    v.tail.scale.set(.7 * r, .55 * r, 1);
+    v.body.scale.set(v.sekil.ax * r, v.sekil.ay * r, 1);
+    v.tail.scale.set(.7 * r, .55 * r * (v.sekil.ay < 0.9 ? 0.8 : 1), 1);
     v.tail.position.x = -1.2 * r;
     const ff = faceFactors(b.mode, now + b.x);
-    v.mouth.scale.set(ff.mx * r, ff.my * r, 1);
+    v.mouth.scale.set(ff.mx * v.sekil.agiz * r, ff.my * r, 1);
     v.mouth.position.set(.95 * r, -.28 * r, .1);
+    if (v.lure) v.lure.position.set(1.15 * r, .52 * r, .12);
     v.eyeB.scale.setScalar(r * ff.eye);
     v.eyeW.scale.setScalar(r * ff.ew);
     v.ring?.scale.setScalar(r);
     v.selRing.scale.setScalar(r);
-    textSprite(v, `${b.name} · ${Math.round(b.kg)} kg`, b.player ? "#ffd34d" : "#bfe3ff", 0);
+    textSprite(v, `${b.name} · ${Math.round(b.kg * 1000)} g`, b.player ? "#ffd34d" : "#bfe3ff", 0);
     v.nameSprite.position.set(0, r + 26, .4);
     if (b.label && v._lastLabel !== b.label + b.labelColor) {
       v._lastLabel = b.label + b.labelColor;

@@ -18,12 +18,28 @@ const MAX_CONCURRENT = 3;          // parallel Jev calls
 const W = 1900, H = 1150;          // world size (world units)
 const AI_COUNT = 5;                // Jev-controlled fish
 const MAX_PLAYERS = 5;             // human player slots
-const FOOD_COUNT = 14;             // pellet cap on the map; pellets appear randomly over time
-const FOOD_SPAWN_MS = 1800;        // pellet spawn cadence
+const FOOD_COUNT = 20;             // pellet cap on the map; pellets appear randomly over time
+const FOOD_SPAWN_MS = 900;         // pellet spawn cadence
 const METAB_DECAY = 0.012;         // energy loss per second
 const MASS_DECAY = 0.008;          // base mass loss per second (+ scales with mass)
-const MASS_FLOOR = 0.45;           // drop below this while starving → death
-const AI_COLOR = "#7f95a8";        // all Jev fish share one color; players get unique colors
+const MASS_FLOOR = 0.05;           // kg — below this (50 g) a starving fish dies
+const AI_COLOR = "#7f95a8";        // players get unique colors
+
+// ── species: every Jev fish has its own species trait ──
+const TURLER = {
+  piranha: { ad: "Piranha",        ozellik: "Predator — can eat prey almost its own size", renk: "#d9453c", hiz: 1.05, avOrani: 1.05, metabolizma: 1.25, diken: false, gizli: false },
+  yilan:   { ad: "Eel",            ozellik: "Agile — swims 35% faster than everyone",      renk: "#3fae6a", hiz: 1.35, avOrani: 1.30, metabolizma: 1.0,  diken: false, gizli: false },
+  fener:   { ad: "Anglerfish",     ozellik: "Stealth — unnoticed until someone gets close",renk: "#3c4a6b", hiz: 1.0,  avOrani: 1.30, metabolizma: 1.0,  diken: false, gizli: true },
+  mersin:  { ad: "Sturgeon",       ozellik: "Armored — loses mass & energy half as fast",  renk: "#9fb2c8", hiz: 0.9,  avOrani: 1.30, metabolizma: 0.5,  diken: false, gizli: false },
+  balon:   { ad: "Pufferfish",     ozellik: "Spiky — completely immune to the mines",      renk: "#e0a13c", hiz: 1.0,  avOrani: 1.30, metabolizma: 1.1,  diken: true,  gizli: false },
+};
+const SPECIES = [
+  { tur: "piranha", mass: 2.2 },
+  { tur: "yilan",   mass: 1.8 },
+  { tur: "fener",   mass: 3.4 },
+  { tur: "mersin",  mass: 4.2 },
+  { tur: "balon",   mass: 1.6 },
+];
 const SPIKE_COUNT = 7;             // mines: touching one makes the fish explode into food
 
 /* ── Jev bridge ────────────────────────────────────────── */
@@ -89,20 +105,14 @@ function callJev(payload) {
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const radiusOf = (m) => 15 * Math.pow(m, 0.62);
+const radiusOf = (m) => 20 * Math.sqrt(m);
 const hslHex = (h, s, l) => {
   const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h * 6) % 2 - 1)), m = l - c / 2;
   const seg = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h * 6) % 6];
   return "#" + seg.map((v) => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
 };
 
-const AI_NAMES = ["Bubbles", "Shadow", "Bolt", "Mist", "Comet", "Storm", "Coral", "Kelp",
-  "Perch", "Bass", "Bream", "Tuna", "Mackerel", "Anchovy", "Sardine", "Marlin",
-  "Goatfish", "Sole", "Azure", "Deep", "Buccaneer", "Captain", "Lantern", "Tramontane",
-  "Mistral", "Typhoon", "Wave", "Shore", "Isle", "Harbor", "Skiff", "Sail",
-  "Anchor", "Fog", "Moonlight", "Bagel", "Tea", "Baklava", "Pickle", "Emerald",
-  "Pearl", "Naiad", "Diver", "Apprentice", "Master", "Sprout", "Current", "Drift",
-  "Tide", "Reef"];
+
 
 const fishes = [];
 const foods = [];
@@ -132,11 +142,15 @@ function spawnSpikes() {
 }
 spawnSpikes();
 
-function makeFish(name, hue, mass, isPlayer) {
+function makeFish(name, turOrHue, mass, isPlayer) {
+  const tur = isPlayer ? null : turOrHue;
+  const turBilgi = tur && TURLER[tur];
   const f = {
     id: "b" + (++fishSeq), name,
-    _hue: hue,
-    color: isPlayer ? hslHex(hue, 0.8, 0.52) : AI_COLOR,
+    _hue: turOrHue,
+    tur: tur || null,
+    ozellik: turBilgi ? turBilgi.ozellik : null,
+    color: isPlayer ? hslHex(Number(turOrHue) || 0.12, 0.8, 0.52) : (turBilgi ? turBilgi.renk : AI_COLOR),
     mass, isPlayer,
     x: rnd(-W / 2 + 150, W / 2 - 150), y: rnd(-H / 2 + 120, H / 2 - 120),
     vx: rnd(-30, 30), vy: rnd(-30, 30), dir: rnd(0, Math.PI * 2),
@@ -150,7 +164,7 @@ function makeFish(name, hue, mass, isPlayer) {
   fishes.push(f);
   return f;
 }
-AI_NAMES.slice(0, AI_COUNT).forEach((n, i) => makeFish(n, 0.02 + (i % 20) / 20 * 0.95, rnd(0.7, 3.0), false));
+SPECIES.forEach((s) => makeFish(TURLER[s.tur].ad, s.tur, s.mass, false));
 
 function addFeed(cls, text) {
   feed.unshift({ cls, text, t: Date.now() });
@@ -170,9 +184,10 @@ const bearing = (f, o) => {
 function buildPayload(f) {
   const foodsNear = nearOf(foods, f, () => true, 3)
     .map(({ o, d }) => ({ id: o.id, distance: Math.round(d), direction: bearing(f, o) }));
-  const prey = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 2)
+  const prey = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * ((f.tur === "piranha") ? 0.95 : 0.8), 2)
     .map(({ o, d }) => ({ id: o.name, size_ratio: +(o.mass / f.mass).toFixed(2), distance: Math.round(d), direction: bearing(f, o) }));
-  const threats = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 2)
+  // Anglerfish stays invisible until someone gets within 330 units
+  const threats = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25 && !(o.tur === "fener" && dist(o, f) > 330), 2)
     .map(({ o, d }) => ({ id: o.name, size_ratio: +(o.mass / f.mass).toFixed(2), distance: Math.round(d), direction: bearing(f, o) }));
   const dangerPct = threats.length ? +clamp(1 - threats[0].distance / 620, 0, 1).toFixed(2) : 0;
   const walls = {
@@ -188,7 +203,12 @@ function buildPayload(f) {
   const aclik = +(1 - f.enerji).toFixed(2);   // 0 = tok, 1 = aç
   return {
     state: {
-      me: { name: f.name, mass_kg: +f.mass.toFixed(2), role: f.isPlayer ? "player" : "ai", hunger_pct: aclik },
+      me: {
+        name: f.name, mass_g: Math.round(f.mass * 1000), role: f.isPlayer ? "player" : "ai",
+        hunger_pct: aclik,
+        species: f.tur && TURLER[f.tur] ? TURLER[f.tur].ad : null,
+        trait: f.ozellik,
+      },
       surroundings: {
         foods: foodsNear, prey, threats,
         threat_proximity_pct: dangerPct,
@@ -448,6 +468,7 @@ function respawn(victim) {
 
 /* ── spikes: touch one and you explode into pellets ────── */
 function spikeCheck(f) {
+  if (f.tur === "balon") return;       // Pufferfish: spike-immune
   for (const s of spikes) {
     if (dist(f, s) < s.r + radiusOf(f.mass) * 0.7) {
       f.alive = false;
@@ -560,7 +581,7 @@ setInterval(() => {
       return {
         id: f.id, name: f.name, kg: +f.mass.toFixed(1), x: Math.round(f.x), y: Math.round(f.y),
         dir: +f.dir.toFixed(2), alive: f.alive, player: f.isPlayer,
-        color: f.color, mode: f.mode,
+        color: f.color, mode: f.mode, tur: f.tur, ozellik: f.ozellik,
         label: fresh ? `${f.label} ${f.arrow || ""}`.trim() : null,
         labelColor: f.labelColor, sprint: f.sprint,
       };
@@ -641,11 +662,9 @@ function resetWorld() {
     .map(([tok, fid]) => ({ tok, fid, old: fishes.find((f) => f.id === fid) }))
     .filter((x) => x.old);
   fishes.length = 0;
-  for (let i = 0; i < AI_COUNT; i++) {
-    makeFish(AI_NAMES[i], 0.02 + (i % 20) / 20 * 0.95, rnd(0.7, 3.0), false);
-  }
+  SPECIES.forEach((s) => makeFish(TURLER[s.tur].ad, s.tur, s.mass, false));
   for (const o of playerCopies) {
-    const nf = makeFish(o.old.name, o.old._hue ?? 0.12, 1.0, true);
+    const nf = makeFish(o.old.name, o.old.isPlayer ? (o.old._hue ?? 0.12) : o.old.tur, 1.0, true);
     nf.id = o.fid;                       // keep the token mapping intact
   }
   foods.length = 0;
