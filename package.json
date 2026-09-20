@@ -1,0 +1,16 @@
+{
+  "name": "jev-balik-oyunu",
+  "version": "1.0.0",
+  "description": "Kararlarini TypeSafe Jev (System One) veren cok oyunculu Three.js balik oyunu",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

@@ -1,0 +1,10 @@
+# hassas bilgiler — asla commit etme
+.env
+key.json
+
+# bağımlılıklar
+node_modules/
+
+# loglar ve geçici dosyalar
+*.log
+.DS_Store
