@@ -18,7 +18,11 @@ const MAX_CONCURRENT = 3;          // parallel Jev calls
 const W = 1900, H = 1150;          // world size (world units)
 const AI_COUNT = 5;                // Jev-controlled fish
 const MAX_PLAYERS = 5;             // human player slots
-const FOOD_COUNT = 14;             // pellets scattered around the map
+const FOOD_COUNT = 14;             // pellet cap on the map; pellets appear randomly over time
+const FOOD_SPAWN_MS = 1800;        // pellet spawn cadence
+const METAB_DECAY = 0.012;         // energy loss per second
+const MASS_DECAY = 0.008;          // base mass loss per second (+ scales with mass)
+const MASS_FLOOR = 0.45;           // drop below this while starving → death
 const AI_COLOR = "#7f95a8";        // all Jev fish share one color; players get unique colors
 const SPIKE_COUNT = 7;             // mines: touching one makes the fish explode into food
 
@@ -113,6 +117,10 @@ function spawnFood() {
   foods.push({ id: "y" + (++foodSeq), x: rnd(-W / 2 + 60, W / 2 - 60), y: rnd(-H / 2 + 60, H / 2 - 60) });
 }
 for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
+// yemler rastgele aralıklarla yeniden belirir (yenilen yem yok olur, yenisi başka yerde çıkar)
+setInterval(() => {
+  if (foods.length < FOOD_COUNT && Math.random() < 0.75) spawnFood();
+}, FOOD_SPAWN_MS);
 
 // spikes: fish that touch one explodes into edible pellets
 const spikes = [];
@@ -134,6 +142,7 @@ function makeFish(name, hue, mass, isPlayer) {
     vx: rnd(-30, 30), vy: rnd(-30, 30), dir: rnd(0, Math.PI * 2),
     mode: "roam", targetId: null, threatId: null, sprint: false,
     alive: true, nextThink: Date.now() + rnd(200, 4000), thinking: false,
+    enerji: 0.8,                       // 0-1: düşerse açlık artar, sıfıra yakınsa ölür
     _wa: rnd(0, Math.PI * 2), _threats: [],
     label: null, labelColor: "#9fb6c9", labelAt: 0, arrow: "",
     input: { x: 0, y: 0, down: false, has: false },
@@ -176,9 +185,10 @@ function buildPayload(f) {
   foodsNear.forEach((y) => targetCriteria[y.id] = `food pellet, ${y.distance} units to the ${y.direction}`);
   prey.forEach((b) => targetCriteria[b.id] = `prey at ${b.size_ratio}x your size, ${b.distance} units to the ${b.direction}`);
   threats.forEach((b) => targetCriteria["flee_" + b.id] = `${b.id} is a threat ${b.distance} units to the ${b.direction}; open distance instead`);
+  const aclik = +(1 - f.enerji).toFixed(2);   // 0 = tok, 1 = aç
   return {
     state: {
-      me: { name: f.name, mass_kg: +f.mass.toFixed(2), role: f.isPlayer ? "player" : "ai" },
+      me: { name: f.name, mass_kg: +f.mass.toFixed(2), role: f.isPlayer ? "player" : "ai", hunger_pct: aclik },
       surroundings: {
         foods: foodsNear, prey, threats,
         threat_proximity_pct: dangerPct,
@@ -189,12 +199,12 @@ function buildPayload(f) {
     questions: {
       action: {
         type: "choice",
-        instructions: "What should the fish in `me` do next? Use the `surroundings` data.",
+        instructions: "What should the fish in `me` do next? Your drives: eat, survive, avoid being eaten. Use `me.hunger_pct` and the `surroundings` data.",
         criteria: {
           flee: "if `surroundings.threats` is not empty, survive first; if a `surroundings.walls` value is below 200, slide parallel to the wall instead of getting cornered; keep `surroundings.spikes` distance above 200 when picking an escape direction",
-          hunt: "if `surroundings.prey` has targets and there is no immediate threat/spike risk, grow by hunting",
-          eat_food: "if `surroundings.foods` has pellets reachable without crossing a spike, grow safely",
-          roam: "if there is no prey, food or threat nearby, explore",
+          hunt: "if `surroundings.prey` has targets, hunting feeds you far more than pellets — preferred when `me.hunger_pct` is above 0.4 and no immediate threat/spike risk",
+          eat_food: "if `me.hunger_pct` is above 0.35 and `surroundings.foods` has pellets reachable without crossing a spike, eat them",
+          roam: "if hunger is low (below 0.35) and there is no prey, food or threat nearby, explore",
         },
       },
       target: {
@@ -245,6 +255,7 @@ function readableQA(f, req, resp, ms, source) {
   });
   const st = req.state.surroundings;
   const sees = [
+    `hunger ${Math.round((1 - f.enerji) * 100)}%`,
     `${st.foods.length} foods${st.foods[0] ? ` (nearest: ${st.foods[0].distance}u ${st.foods[0].direction})` : ""}`,
     `${st.prey.length} prey`,
     st.threats.length
@@ -408,6 +419,7 @@ function tryEat(f) {
     if (other === f || !other.alive) continue;
     if (f.mass > other.mass * 1.3 && dist(f, other) < radiusOf(f.mass) * 0.85) {
       f.mass = Math.min(f.mass + other.mass * 0.6 / Math.pow(f.mass, 0.6), 35);
+      f.enerji = Math.min(1, f.enerji + 0.3);
       other.alive = false;
       addFeed("flee", `${other.name} was eaten! (${f.name} +${(other.mass * .6).toFixed(1)} kg)`);
       const victim = other;
@@ -463,6 +475,29 @@ setInterval(() => {
     f.x = clamp(f.x + f.vx * dt, -W / 2 + r * 0.9 + 8, W / 2 - r * 0.9 - 8);
     f.y = clamp(f.y + f.vy * dt, -H / 2 + r * 0.9 + 8, H / 2 - r * 0.9 - 8);
     if (Math.hypot(f.vx, f.vy) > 8) f.dir = Math.atan2(f.vy, f.vx);
+    // metabolizma: enerji ve kütle zamanla azalır — yemek zorunluluktur
+    f.enerji = Math.max(0, f.enerji - dt * METAB_DECAY);
+    f.mass = Math.max(MASS_FLOOR, f.mass - dt * (MASS_DECAY + f.mass * 0.005));
+    if (f.mass <= MASS_FLOOR + 0.01 && f.enerji <= 0.02) {
+      // açlıktan ölüm: birkaç parça yem bırakır ve yeniden doğar
+      f.alive = false;
+      const adet = 4;
+      for (let i = 0; i < adet; i++) {
+        foods.push({
+          id: "y" + (++foodSeq), single: true,
+          x: clamp(f.x + rnd(-70, 70), -W / 2 + 40, W / 2 - 40),
+          y: clamp(f.y + rnd(-70, 70), -H / 2 + 40, H / 2 - 40),
+        });
+      }
+      addFeed("flee", `${f.name} starved to death — ${adet} pellets scattered`);
+      setTimeout(() => {
+        const canliAI = fishes.filter((x) => x.alive && !x.isPlayer).length;
+        if (canliAI >= AI_COUNT && !f.isPlayer) return;
+        f.mass = rnd(0.7, 3.0); f.enerji = 0.8;
+        f.x = rnd(-W / 2 + 120, W / 2 - 120); f.y = rnd(-H / 2 + 100, H / 2 - 100);
+        f.vx = f.vy = 0; f.mode = "roam"; f.alive = true; f.nextThink = Date.now() + 400;
+      }, 2500);
+    }
     tryEat(f);
     spikeCheck(f);
   }

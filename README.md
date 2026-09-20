@@ -23,6 +23,9 @@ Three questions per fish, answered in **~300 ms** for fractions of a cent — ba
 - 🧠 **Jev-driven AI** — every decision is a TypeSafe System One call: `choice` (action + target), `noul` (panic 0-1). Full Q&A inspector per fish.
 - 🌐 **Authoritative multiplayer** — 30 Hz server simulation, 10 Hz WebSocket broadcast, dead-reckoning client interpolation at 60 fps. One shared world for up to 5 players + unlimited spectators.
 - 🎨 **Expressive faces** — fish open their mouths in fear, drool when hungry, narrow their eyes while hunting.
+- 🍽️ **Metabolism** — energy and mass decay over time; hunger drives the AI's
+  choices (and starved fish die and scatter as pellets). Big fish must keep
+  hunting: pellets alone can't sustain them.
 - 🌟 **Spikes** — agar.io-style mines: touch one and you explode into pellets for everyone else. Jev sees them and steers around them.
 - 📈 **Mass-scaled speed** — small fish are nimble, big fish are tanks.
 - 👤 **Instant role switching** — change your nickname or jump between player and spectator at any moment.
