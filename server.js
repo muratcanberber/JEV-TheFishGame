@@ -114,7 +114,7 @@ const viewers = new Map();     // token → nick (spectators)
 let stats = { count: 0, latSum: 0, latN: 0, fallback: 0 };
 
 function spawnFood() {
-  foods.push({ id: "y" + (++foodSeq), x: rnd(-W / 2 + 60, W / 2 - 60), y: rnd(-H / 2 + 60, H / 2 - 60) });
+  foods.push({ id: "y" + (++foodSeq), x: rnd(-W / 2 + 150, W / 2 - 150), y: rnd(-H / 2 + 130, H / 2 - 130) });
 }
 for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
 // yemler rastgele aralıklarla yeniden belirir (yenilen yem yok olur, yenisi başka yerde çıkar)
@@ -202,7 +202,7 @@ function buildPayload(f) {
         instructions: "What should the fish in `me` do next? Your drives: eat, survive, avoid being eaten. Use `me.hunger_pct` and the `surroundings` data.",
         criteria: {
           flee: "if `surroundings.threats` is not empty, survive first; if a `surroundings.walls` value is below 200, slide parallel to the wall instead of getting cornered; keep `surroundings.spikes` distance above 200 when picking an escape direction",
-          hunt: "if `surroundings.prey` has targets, hunting feeds you far more than pellets — preferred when `me.hunger_pct` is above 0.4 and no immediate threat/spike risk",
+          hunt: "if `me.mass_kg` is above 2 and `me.hunger_pct` is above 0.4, you MUST hunt when `surroundings.prey` has targets — pellets cannot sustain a large fish. Otherwise hunt when hunger is above 0.4 and there is no immediate threat/spike risk",
           eat_food: "if `me.hunger_pct` is above 0.35 and `surroundings.foods` has pellets reachable without crossing a spike, eat them",
           roam: "if hunger is low (below 0.35) and there is no prey, food or threat nearby, explore",
         },
@@ -370,7 +370,14 @@ function steer(f, dt) {
     if (f.mode === "eat_food") {
       const y = f.targetId ? entityById(f.targetId) : null;
       const food = (y && !y.mass) ? y : nearOf(foods, f, () => true, 1)[0]?.o;
-      if (food) { tx = food.x; ty = food.y; } else f.mode = "roam";
+      // aç ve büyüksek yem yetmez — en yakın avı hedefle (amaçlı büyüme)
+      const acPrey = f.enerji < 0.5
+        ? nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 1)[0]
+        : null;
+      if (acPrey && acPrey.d < 600) {
+        f.mode = "hunt"; f.targetId = acPrey.o.name;
+        tx = acPrey.o.x; ty = acPrey.o.y; speed *= 1.15;
+      } else if (food) { tx = food.x; ty = food.y; } else f.mode = "roam";
     }
     if (f.mode === "roam") {
       f._wa += rnd(-0.5, 0.5) * dt * 3;
@@ -383,7 +390,7 @@ function steer(f, dt) {
   const d = Math.hypot(tx - f.x, ty - f.y);
   if (d > 4) { ax = (tx - f.x) / d * speed; ay = (ty - f.y) / d * speed; }
   // wall push + slide: turn inward near edges, glide along them out of corners
-  const M = 170, PUSH = 320, TANGENT = 0.55;
+  const M = 170, PUSH = 140, TANGENT = 0.55;   // PUSH > yüzme hızı olursa balık duvara asla ulaşamaz
   const mL = f.x + W / 2, mR = W / 2 - f.x, mU = f.y + H / 2, mD = H / 2 - f.y;
   if (mL < M) { ax += (1 - mL / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mL / M) * PUSH * TANGENT; }
   if (mR < M) { ax -= (1 - mR / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mR / M) * PUSH * TANGENT; }
@@ -472,8 +479,8 @@ setInterval(() => {
     steer(f, dt);
     // gövdenin TAMAMI duvar içinde: kelepçe yarıçapa duyarlı
     const r = radiusOf(f.mass);
-    f.x = clamp(f.x + f.vx * dt, -W / 2 + r * 0.9 + 8, W / 2 - r * 0.9 - 8);
-    f.y = clamp(f.y + f.vy * dt, -H / 2 + r * 0.9 + 8, H / 2 - r * 0.9 - 8);
+    f.x = clamp(f.x + f.vx * dt, -W / 2 + r * 0.95, W / 2 - r * 0.95);
+    f.y = clamp(f.y + f.vy * dt, -H / 2 + r * 0.95, H / 2 - r * 0.95);
     if (Math.hypot(f.vx, f.vy) > 8) f.dir = Math.atan2(f.vy, f.vx);
     // metabolizma: enerji ve kütle zamanla azalır — yemek zorunluluktur
     f.enerji = Math.max(0, f.enerji - dt * METAB_DECAY);

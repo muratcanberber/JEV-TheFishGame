@@ -526,8 +526,8 @@ function tick(now) {
     v.group.position.y += (ty - v.group.position.y) * chase;
     let x = v.group.position.x, y = v.group.position.y;
     const r = radiusOf(b.kg);
-    x = Math.max(-W / 2 + r * .5, Math.min(W / 2 - r * .5, x));   // never render past the walls
-    y = Math.max(-H / 2 + r * .5, Math.min(H / 2 - r * .5, y));
+    x = Math.max(-W / 2 + r * .95, Math.min(W / 2 - r * .95, x));   // never render past the walls
+    y = Math.max(-H / 2 + r * .95, Math.min(H / 2 - r * .95, y));
     v.group.position.x = x; v.group.position.y = y;
     const dir = Math.atan2(b.y - (p ? p.y : b.y), b.x - (p ? p.x : b.x));
     v.group.rotation.z = angLerp(v.group.rotation.z, Number.isFinite(dir) ? dir : (b.dir || 0), Math.min(1, dt * 6));
