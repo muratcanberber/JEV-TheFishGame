@@ -1,6 +1,10 @@
-// Jev Balık Oyunu — otoriter motor + WebSocket gerçek zamanlı yayın
-// Tek kalıcı sokak: sunucu 10 Hz itiyor, oyuncu girdisi olay bazlı gidiyor (polling yok).
-// Çalıştırma: node server.js → http://localhost:8787
+// JEV — The Fish Game · authoritative multiplayer game server + real-time WebSocket feed
+// The simulation runs server-side; AI fish call the TypeSafe Jev (System One) API for
+// every decision. Spectators watch a single shared world over one persistent socket.
+//
+// Run: node server.js  →  http://localhost:8787
+// Key:  .env (TYPESAFE_API_KEY=...) or environment variable. Never committed.
+
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -10,16 +14,16 @@ const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8787;
 const API_URL = "https://api.typesafe.ai/v1/systemone";
-const MAX_CONCURRENT = 3;
-const W = 1900, H = 1150;
-const AI_COUNT = 5;                // Jev balığı
-const MAX_PLAYERS = 5;             // kullanıcı oyuncu limiti
-const FOOD_COUNT = 14;             // az sayıda rastgele yem
-const AI_RENK = "#7f95a8";         // tüm Jev balıkları tek renk (oyuncular farklı renk)
-const SPIKE_COUNT = 7;             // patlatıcı dikenler
+const MAX_CONCURRENT = 3;          // parallel Jev calls
+const W = 1900, H = 1150;          // world size (world units)
+const AI_COUNT = 5;                // Jev-controlled fish
+const MAX_PLAYERS = 5;             // human player slots
+const FOOD_COUNT = 14;             // pellets scattered around the map
+const AI_COLOR = "#7f95a8";        // all Jev fish share one color; players get unique colors
+const SPIKE_COUNT = 7;             // mines: touching one makes the fish explode into food
 
-/* ── Jev köprüsü ───────────────────────────────────────── */
-// Anahtar YALNIZCA .env dosyasından veya ortam değişkeninden okunur; repoya girmez.
+/* ── Jev bridge ────────────────────────────────────────── */
+// The API key is read ONLY from .env or the environment — never committed.
 function readEnvFile() {
   try {
     const out = {};
@@ -51,7 +55,7 @@ function release() {
 function callJev(payload) {
   return new Promise((resolve, reject) => {
     const key = readKey();
-    if (!key) return reject(new Error("anahtar yok"));
+    if (!key) return reject(new Error("missing API key"));
     const body = JSON.stringify({ ...payload, model: payload.model || "jev-latest" });
     const req = https.request(API_URL, {
       method: "POST",
@@ -70,14 +74,14 @@ function callJev(payload) {
         } else reject(new Error("HTTP " + res.statusCode));
       });
     });
-    req.on("timeout", () => req.destroy(new Error("zaman aşımı")));
+    req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", reject);
     req.write(body);
     req.end();
   });
 }
 
-/* ── dünya ─────────────────────────────────────────────── */
+/* ── world ─────────────────────────────────────────────── */
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -88,29 +92,29 @@ const hslHex = (h, s, l) => {
   return "#" + seg.map((v) => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
 };
 
-const AI_NAMES = ["Lekker", "Bulut", "Şimşek", "Gölge", "Duman", "Kıvılcım", "Fırtına", "Mercan",
-  "Yosun", "Kefal", "Levrek", "Palamut", "Uskumru", "Hamsi", "Sardalya", "Ton", "Barbun",
-  "Dil Balığı", "Çine", "Mavi", "Derin", "Korsan", "Kaptan", "Fener", "Lodos", "Poyraz",
-  "Karayel", "Meltem", "Tayfun", "Dalga", "Kıyı", "Ada", "Liman", "Sandal", "Yelken",
-  "Demir", "Çapa", "Sis", "Ay Işığı", "Simit", "Çay", "Baklava", "Turşu", "Zümrüt", "İnci",
-  "Su Perisi", "Dalgıç", "Çırak", "Usta", "Sülo"];
+const AI_NAMES = ["Bubbles", "Shadow", "Bolt", "Mist", "Comet", "Storm", "Coral", "Kelp",
+  "Perch", "Bass", "Bream", "Tuna", "Mackerel", "Anchovy", "Sardine", "Marlin",
+  "Goatfish", "Sole", "Azure", "Deep", "Buccaneer", "Captain", "Lantern", "Tramontane",
+  "Mistral", "Typhoon", "Wave", "Shore", "Isle", "Harbor", "Skiff", "Sail",
+  "Anchor", "Fog", "Moonlight", "Bagel", "Tea", "Baklava", "Pickle", "Emerald",
+  "Pearl", "Naiad", "Diver", "Apprentice", "Master", "Sprout", "Current", "Drift",
+  "Tide", "Reef"];
 
 const fishes = [];
 const foods = [];
 let foodSeq = 0, fishSeq = 0;
-const feed = [];
-const kararlar = new Map();
-const tokens = new Map();      // token → fishId (oyuncular)
-const viewers = new Map();     // token → nick (izleyiciler)
+const feed = [];               // recent event log
+const decisions = new Map();   // fishId → latest human-readable Q&A
+const tokens = new Map();      // token → fishId (players)
+const viewers = new Map();     // token → nick (spectators)
 let stats = { count: 0, latSum: 0, latN: 0, fallback: 0 };
 
-// yemler geri geldi: az sayıda, yendiğinde rastgele yere taşınır
 function spawnFood() {
   foods.push({ id: "y" + (++foodSeq), x: rnd(-W / 2 + 60, W / 2 - 60), y: rnd(-H / 2 + 60, H / 2 - 60) });
 }
 for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
 
-// dikenler: çarpan balık patlar, parçaları yem olur
+// spikes: fish that touch one explodes into edible pellets
 const spikes = [];
 function spawnSpikes() {
   spikes.length = 0;
@@ -124,15 +128,15 @@ function makeFish(name, hue, mass, isPlayer) {
   const f = {
     id: "b" + (++fishSeq), name,
     _hue: hue,
-    renk: isPlayer ? hslHex(hue, 0.8, 0.52) : AI_RENK,
+    color: isPlayer ? hslHex(hue, 0.8, 0.52) : AI_COLOR,
     mass, isPlayer,
     x: rnd(-W / 2 + 150, W / 2 - 150), y: rnd(-H / 2 + 120, H / 2 - 120),
     vx: rnd(-30, 30), vy: rnd(-30, 30), dir: rnd(0, Math.PI * 2),
-    mode: "dolan", targetId: null, threatId: null, sprint: false,
+    mode: "roam", targetId: null, threatId: null, sprint: false,
     alive: true, nextThink: Date.now() + rnd(200, 4000), thinking: false,
-    _wa: rnd(0, Math.PI * 2), _buyukler: [],
-    etiket: null, etiketRenk: "#9fb6c9", etiketZaman: 0, yonOk: "",
-    in: { x: 0, y: 0, down: false, has: false },
+    _wa: rnd(0, Math.PI * 2), _threats: [],
+    label: null, labelColor: "#9fb6c9", labelAt: 0, arrow: "",
+    input: { x: 0, y: 0, down: false, has: false },
   };
   fishes.push(f);
   return f;
@@ -144,154 +148,162 @@ function addFeed(cls, text) {
   if (feed.length > 12) feed.pop();
 }
 
-/* ── karar verici ──────────────────────────────────────── */
+/* ── decision engine ───────────────────────────────────── */
 const nearOf = (list, f, pred, n) =>
   list.filter(pred).map((o) => ({ o, d: dist(o, f) })).sort((a, b) => a.d - b.d).slice(0, n);
-const yon = (f, o) => {
+const bearing = (f, o) => {
   const dx = o.x - f.x, dy = o.y - f.y;
-  const hx = dx > 40 ? "sağ" : dx < -40 ? "sol" : "";
-  const vy = dy > 40 ? "yukarı" : dy < -40 ? "aşağı" : "";
-  return (hx + " " + vy).trim() || "üstünde";
+  const hx = dx > 40 ? "east" : dx < -40 ? "west" : "";
+  const vy = dy > 40 ? "north" : dy < -40 ? "south" : "";
+  return (hx + " " + vy).trim() || "on top of it";
 };
 
 function buildPayload(f) {
-  const yemler = nearOf(foods, f, () => true, 3)
-    .map(({ o, d }) => ({ id: o.id, mesafe: Math.round(d), yone: yon(f, o) }));
-  const dikenler = nearOf(spikes, f, () => true, 2)
-    .map(({ o, d }) => ({ mesafe: Math.round(d), yone: yon(f, o) }));
-  const kucukler = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 2)
-    .map(({ o, d }) => ({ id: o.name, boyut_orani: +(o.mass / f.mass).toFixed(2), mesafe: Math.round(d), yone: yon(f, o) }));
-  const buyukler = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 2)
-    .map(({ o, d }) => ({ id: o.name, boyut_orani: +(o.mass / f.mass).toFixed(2), mesafe: Math.round(d), yone: yon(f, o) }));
-  const tehditPct = buyukler.length ? +clamp(1 - buyukler[0].mesafe / 620, 0, 1).toFixed(2) : 0;
-  const duvar = {
-    sol: Math.round(f.x + W / 2), sag: Math.round(W / 2 - f.x),
-    ust: Math.round(f.y + H / 2), alt: Math.round(H / 2 - f.y),
+  const foodsNear = nearOf(foods, f, () => true, 3)
+    .map(({ o, d }) => ({ id: o.id, distance: Math.round(d), direction: bearing(f, o) }));
+  const prey = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 2)
+    .map(({ o, d }) => ({ id: o.name, size_ratio: +(o.mass / f.mass).toFixed(2), distance: Math.round(d), direction: bearing(f, o) }));
+  const threats = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 2)
+    .map(({ o, d }) => ({ id: o.name, size_ratio: +(o.mass / f.mass).toFixed(2), distance: Math.round(d), direction: bearing(f, o) }));
+  const dangerPct = threats.length ? +clamp(1 - threats[0].distance / 620, 0, 1).toFixed(2) : 0;
+  const walls = {
+    west: Math.round(f.x + W / 2), east: Math.round(W / 2 - f.x),
+    north: Math.round(f.y + H / 2), south: Math.round(H / 2 - f.y),
   };
-  const hedefCriteria = { yok: "Belirgin bir hedef yok, serbest dolaş" };
-  kucukler.forEach((b) => hedefCriteria[b.id] = `av ${b.boyut_orani}x boyutunda, ${b.mesafe} birim ${b.yone}`);
-  buyukler.forEach((b) => hedefCriteria["kac_" + b.id] = `${b.id} tarafından ${b.mesafe} birim ${b.yone} taraftan tehdit var; ters yöne açıl`);
+  const spikesNear = nearOf(spikes, f, () => true, 2)
+    .map(({ o, d }) => ({ distance: Math.round(d), direction: bearing(f, o) }));
+  const targetCriteria = { none: "No obvious target — roam freely" };
+  foodsNear.forEach((y) => targetCriteria[y.id] = `food pellet, ${y.distance} units to the ${y.direction}`);
+  prey.forEach((b) => targetCriteria[b.id] = `prey at ${b.size_ratio}x your size, ${b.distance} units to the ${b.direction}`);
+  threats.forEach((b) => targetCriteria["flee_" + b.id] = `${b.id} is a threat ${b.distance} units to the ${b.direction}; open distance instead`);
   return {
     state: {
-      ben: { kimlik: f.name, boyut_kg: +f.mass.toFixed(2), rol: f.isPlayer ? "oyuncu" : "aje" },
-      cevre: {
-        yemler, kucuk_baliklar: kucukler, buyuk_baliklar: buyukler,
-        dikenler, tehdit_yakinligi_pct: tehditPct, duvar,
+      me: { name: f.name, mass_kg: +f.mass.toFixed(2), role: f.isPlayer ? "player" : "ai" },
+      surroundings: {
+        foods: foodsNear, prey, threats,
+        threat_proximity_pct: dangerPct,
+        walls,
+        spikes: spikesNear,
       },
     },
     questions: {
-      eylem: {
+      action: {
         type: "choice",
-        instructions: "`ben` balığının bir sonraki hamlesi ne olmalı? `cevre` verisini kullan.",
+        instructions: "What should the fish in `me` do next? Use the `surroundings` data.",
         criteria: {
-          kac: "tehdit varsa hayatta kal; `cevre.duvar` 200'ün altındaysa duvara paralel açıl, `cevre.dikenler` 200'ün altındaysa kaçış yönünü dikenden uzak tut",
-          avla: "kucuk_baliklar'da av var ve tehdit/diken riski yoksa büyümek için avlan",
-          yem_ye: "yemler'de yem varsa ve yol üzerinde diken yoksa güvenli büyüme",
-          dolan: "yakında ne av ne yem ne tehdit varsa çevreyi keşfet; dikenlerden uzak dur",
+          flee: "if `surroundings.threats` is not empty, survive first; if a `surroundings.walls` value is below 200, slide parallel to the wall instead of getting cornered; keep `surroundings.spikes` distance above 200 when picking an escape direction",
+          hunt: "if `surroundings.prey` has targets and there is no immediate threat/spike risk, grow by hunting",
+          eat_food: "if `surroundings.foods` has pellets reachable without crossing a spike, grow safely",
+          roam: "if there is no prey, food or threat nearby, explore",
         },
       },
-      hedef: { type: "choice", instructions: "Bu hamle için hangi nesneye odaklanmalı? `cevre` içindeki id'lerden birini seç.", criteria: hedefCriteria },
-      panik: { type: "noul", instructions: "`cevre.buyuk_baliklar` mesafesine göre bu balık hızını artıracak kadar tehdit altında mı?" },
+      target: {
+        type: "choice",
+        instructions: "Which object should this move focus on? Pick one id from `surroundings`.",
+        criteria: targetCriteria,
+      },
+      panic: { type: "noul", instructions: "Judging by `surroundings.threats` distances, is this fish threatened enough to speed up?" },
     },
-    _meta: { buyukler },
+    _meta: { threats },
   };
 }
 
-const MOD_TR = { kac: "KAÇIYOR", avla: "AVLANIYOR", yem_ye: "YEM ARIZ", dolan: "DOLANIYOR" };
-const MOD_KISA = { kac: "KAÇ", avla: "AVLA", yem_ye: "YEM", dolan: "DOLAN" };
-const MOD_RENK = { kac: "#ff9c8f", avla: "#ffc46b", yem_ye: "#8fe3a2", dolan: "#9fb6c9" };
+const MODE_TEXT = { flee: "FLEEING", hunt: "HUNTING", eat_food: "SEEKING FOOD", roam: "ROAMING" };
+const MODE_SHORT = { flee: "FLEE", hunt: "HUNT", eat_food: "FOOD", roam: "ROAM" };
+const MODE_COLOR = { flee: "#ff9c8f", hunt: "#ffc46b", eat_food: "#8fe3a2", roam: "#9fb6c9" };
 
-function okFromAngle(ang) {
-  const sek = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
-  return ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][sek];
+function arrowFromAngle(ang) {
+  const sector = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+  return ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][sector];
 }
 
-function readableQA(f, req, resp, ms, kaynak) {
+function readableQA(f, req, resp, ms, source) {
   const a = resp.answers || {};
   const qa = [];
-  const e = a.eylem || {};
+  const e = a.action || {};
   qa.push({
-    s: "Bir sonraki hamlen ne olmalı?",
-    c: MOD_TR[e.choice] || e.choice || "–",
-    renk: MOD_RENK[e.choice] || "#9fb6c9",
-    guven: e.confidence != null ? Math.round(e.confidence * 100) : null,
-    secenekler: e.probabilities ? Object.entries(e.probabilities)
+    q: "What is your next move?",
+    a: MODE_TEXT[e.choice] || e.choice || "–",
+    color: MODE_COLOR[e.choice] || "#9fb6c9",
+    confidence: e.confidence != null ? Math.round(e.confidence * 100) : null,
+    options: e.probabilities ? Object.entries(e.probabilities)
       .sort((x, y) => y[1] - x[1])
-      .map(([k, v]) => ({ ad: MOD_KISA[k] || k, yuzde: Math.round(v * 100) })) : [],
+      .map(([k, v]) => ({ name: MODE_SHORT[k] || k, pct: Math.round(v * 100) })) : [],
   });
-  const h = a.hedef || {};
-  const hAciklama = h.choice && req.questions.hedef.criteria[h.choice];
+  const h = a.target || {};
+  const hint = h.choice && req.questions.target.criteria[h.choice];
   qa.push({
-    s: "Odaklanacağın hedef hangisi?",
-    c: !h.choice || h.choice === "yok" ? "Belirgin hedef yok, serbest yüz" : h.choice,
-    aciklama: hAciklama || null,
+    q: "Which target will you focus on?",
+    a: !h.choice || h.choice === "none" ? "No obvious target — roam freely" : h.choice,
+    detail: hint || null,
   });
-  const p = a.panik ? a.panik.noul : null;
+  const p = a.panic ? a.panic.noul : null;
   qa.push({
-    s: "Hızını artıracak kadar tehdit var mı?",
-    c: p == null ? "–" : p > 0.6 ? `EVET (%${Math.round(p * 100)})` : p > 0.4 ? `BELİRSİZ (%${Math.round(p * 100)})` : `HAYIR (%${Math.round((1 - p) * 100)})`,
-    renk: p == null ? "#9fb6c9" : p > 0.6 ? "#ff9c8f" : p > 0.4 ? "#ffc46b" : "#8fe3a2",
+    q: "Is the threat big enough to speed up?",
+    a: p == null ? "–" : p > 0.6 ? `YES (${Math.round(p * 100)}%)` : p > 0.4 ? `UNCLEAR (${Math.round(p * 100)}%)` : `NO (${Math.round((1 - p) * 100)}%)`,
+    color: p == null ? "#9fb6c9" : p > 0.6 ? "#ff9c8f" : p > 0.4 ? "#ffc46b" : "#8fe3a2",
   });
-  const st = req.state.cevre;
-  const goruyor = [
-    `${st.yemler.length} yem${st.yemler[0] ? ` (yakın: ${st.yemler[0].mesafe}b ${st.yemler[0].yone})` : ""}`,
-    `${st.kucuk_baliklar.length} av`,
-    st.buyuk_baliklar.length
-      ? `tehdit: ${st.buyuk_baliklar.map((b) => `${b.id} ${b.boyut_orani}× ${b.mesafe}b`).join(", ")}`
-      : "tehdit yok",
-    st.dikenler[0] ? `diken: ${st.dikenler[0].mesafe}b ${st.dikenler[0].yone}` : "diken: uzak",
+  const st = req.state.surroundings;
+  const sees = [
+    `${st.foods.length} foods${st.foods[0] ? ` (nearest: ${st.foods[0].distance}u ${st.foods[0].direction})` : ""}`,
+    `${st.prey.length} prey`,
+    st.threats.length
+      ? `threats: ${st.threats.map((b) => `${b.id} ${b.size_ratio}x ${b.distance}u`).join(", ")}`
+      : "no threats",
+    st.spikes[0] ? `spike: ${st.spikes[0].distance}u ${st.spikes[0].direction}` : "spike: far",
   ].join(" · ");
-  return { id: f.id, ad: f.name, kg: +f.mass.toFixed(2), ms, kaynak, goruyor, qa };
+  return { id: f.id, name: f.name, kg: +f.mass.toFixed(2), ms, source, sees, qa };
 }
 
-function applyDecision(f, payload, out, ms, kaynak) {
+function applyDecision(f, payload, out, ms, source) {
   const a = out.answers || {};
-  const eylem = a.eylem?.choice || "dolan";
-  let hedef = a.hedef?.choice || "yok";
-  const panik = a.panik?.noul ?? 0;
-  f.mode = eylem;
-  f.sprint = eylem === "kac" && panik > 0.6;
+  const action = a.action?.choice || "roam";
+  let target = a.target?.choice || "none";
+  const panic = a.panic?.noul ?? 0;
+  f.mode = action;
+  f.sprint = action === "flee" && panic > 0.6;
   f.targetId = null; f.threatId = null;
-  if (eylem === "kac") {
-    f.threatId = hedef.startsWith("kac_") ? hedef.slice(4) : (f._buyukler?.[0]?.id ?? null);
-  } else if (hedef !== "yok") {
-    f.targetId = hedef;
+  if (action === "flee") {
+    f.threatId = target.startsWith("flee_") ? target.slice(5) : (f._threats?.[0]?.id ?? null);
+  } else if (target !== "none") {
+    f.targetId = target;
   }
-  f.etiket = MOD_KISA[eylem] + (f.sprint ? " ‼" : "");
-  f.etiketRenk = MOD_RENK[eylem];
-  let yonAng = f.dir;
-  const hedefNesne = f.targetId ? entityById(f.targetId) : null;
-  if (eylem === "kac" && f.threatId) {
+  f.label = MODE_SHORT[action] + (f.sprint ? " ‼" : "");
+  f.labelColor = MODE_COLOR[action];
+  // direction decision: away from the threat when fleeing, toward the target otherwise
+  let ang = f.dir;
+  const targetEntity = f.targetId ? entityById(f.targetId) : null;
+  if (action === "flee" && f.threatId) {
     const t = entityById(f.threatId);
-    if (t) yonAng = Math.atan2(f.y - t.y, f.x - t.x);
-  } else if (eylem === "avla" && hedefNesne) {
-    yonAng = Math.atan2(hedefNesne.y - f.y, hedefNesne.x - f.x);
+    if (t) ang = Math.atan2(f.y - t.y, f.x - t.x);
+  } else if (action === "hunt" && targetEntity) {
+    ang = Math.atan2(targetEntity.y - f.y, targetEntity.x - f.x);
   }
-  f.yonOk = okFromAngle(yonAng);
-  f.etiketZaman = Date.now();
-  if (kaynak === "jev") { stats.count++; stats.latSum += ms; stats.latN++; } else stats.fallback++;
-  const qa = readableQA(f, payload, out, ms, kaynak);
-  kararlar.set(f.id, qa);
-  fanout("karar", qa);
+  f.arrow = arrowFromAngle(ang);
+  f.labelAt = Date.now();
+  if (source === "jev") { stats.count++; stats.latSum += ms; stats.latN++; } else stats.fallback++;
+  const qa = readableQA(f, payload, out, ms, source);
+  decisions.set(f.id, qa);
+  fanout("decision", qa);
 }
 
 function fallbackDecision(f) {
-  const buyukler = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 1);
-  if (buyukler.length && buyukler[0].d < 320) {
-    f.mode = "kac"; f.threatId = buyukler[0].o.name; f.targetId = null; f.sprint = buyukler[0].d < 200;
+  const threats = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 1);
+  if (threats.length && threats[0].d < 320) {
+    f.mode = "flee"; f.threatId = threats[0].o.name; f.targetId = null; f.sprint = threats[0].d < 200;
   } else {
-    const kucuk = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 1);
-    if (kucuk.length && kucuk[0].d < 380) { f.mode = "avla"; f.targetId = kucuk[0].o.name; f.threatId = null; }
-    else { f.mode = "dolan"; f.targetId = null; f.threatId = null; f.sprint = false; }
+    const prey = nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 1);
+    if (prey.length && prey[0].d < 380) { f.mode = "hunt"; f.targetId = prey[0].o.name; f.threatId = null; }
+    else { f.mode = "roam"; f.targetId = null; f.threatId = null; f.sprint = false; }
   }
-  f.etiket = MOD_KISA[f.mode]; f.etiketRenk = MOD_RENK[f.mode];
+  f.label = MODE_SHORT[f.mode]; f.labelColor = MODE_COLOR[f.mode];
 }
 
 async function decide(f) {
   f.thinking = true;
   const payload = buildPayload(f);
   const meta = payload._meta; delete payload._meta;
-  f._buyukler = meta.buyukler;
+  f._threats = meta.threats;
   try {
     const t0 = Date.now();
     const out = await callJev(payload);
@@ -300,31 +312,31 @@ async function decide(f) {
     fallbackDecision(f);
     applyDecision(f, payload, {
       answers: {
-        eylem: { choice: f.mode, probabilities: null, confidence: null },
-        hedef: { choice: f.targetId || "yok" },
-        panik: { noul: f.sprint ? 0.9 : 0.1 },
+        action: { choice: f.mode, probabilities: null, confidence: null },
+        target: { choice: f.targetId || "none" },
+        panic: { noul: f.sprint ? 0.9 : 0.1 },
       },
-    }, 0, "yerel");
+    }, 0, "local");
   } finally {
     f.thinking = false;
     f.nextThink = Date.now() + rnd(3500, 8000);
   }
 }
 
-/* ── fizik ─────────────────────────────────────────────── */
+/* ── physics ───────────────────────────────────────────── */
 function entityById(id) {
   return fishes.find((o) => o.alive && o.name === id);
 }
 function steer(f, dt) {
-  // kütleyle azalan hız: küçük çevik, büyük hantaldır
+  // mass-dependent speed: small fish are nimble, big fish are sluggish
   let speed = clamp(115 / Math.pow(f.mass, 0.45), 42, 130);
   let tx = null, ty = null;
   if (f.isPlayer) {
-    if (!f.in.has) return;
-    tx = f.in.x; ty = f.in.y;
-    if (f.in.down) speed *= 1.5;
+    if (!f.input.has) return;
+    tx = f.input.x; ty = f.input.y;
+    if (f.input.down) speed *= 1.5;
   } else {
-    if (f.mode === "kac") {
+    if (f.mode === "flee") {
       const t = f.threatId ? entityById(f.threatId) : null;
       const threat = t && t.mass ? t : nearOf(fishes, f, (o) => o !== f && o.alive && o.mass > f.mass * 1.25, 1)[0]?.o;
       if (threat) {
@@ -332,14 +344,19 @@ function steer(f, dt) {
         tx = f.x + (f.x - threat.x) / d * 300;
         ty = f.y + (f.y - threat.y) / d * 300;
         if (f.sprint) speed *= 1.35;
-      } else f.mode = "dolan";
+      } else f.mode = "roam";
     }
-    if (f.mode === "avla") {
+    if (f.mode === "hunt") {
       const p = f.targetId ? entityById(f.targetId) : null;
       const prey = p && p.mass && p.mass < f.mass * 0.8 ? p : nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 1)[0]?.o;
-      if (prey) { tx = prey.x; ty = prey.y; speed *= 1.15; } else f.mode = "dolan";
+      if (prey) { tx = prey.x; ty = prey.y; speed *= 1.15; } else f.mode = "roam";
     }
-    if (f.mode === "dolan") {
+    if (f.mode === "eat_food") {
+      const y = f.targetId ? entityById(f.targetId) : null;
+      const food = (y && !y.mass) ? y : nearOf(foods, f, () => true, 1)[0]?.o;
+      if (food) { tx = food.x; ty = food.y; } else f.mode = "roam";
+    }
+    if (f.mode === "roam") {
       f._wa += rnd(-0.5, 0.5) * dt * 3;
       tx = clamp(f.x + Math.cos(f._wa) * 260, -W / 2 + 60, W / 2 - 60);
       ty = clamp(f.y + Math.sin(f._wa) * 260, -H / 2 + 60, H / 2 - 60);
@@ -349,22 +366,23 @@ function steer(f, dt) {
   let ax = 0, ay = 0;
   const d = Math.hypot(tx - f.x, ty - f.y);
   if (d > 4) { ax = (tx - f.x) / d * speed; ay = (ty - f.y) / d * speed; }
-  const M = 170, PUSH = 320, TANJANT = 0.55;
+  // wall push + slide: turn inward near edges, glide along them out of corners
+  const M = 170, PUSH = 320, TANGENT = 0.55;
   const mL = f.x + W / 2, mR = W / 2 - f.x, mU = f.y + H / 2, mD = H / 2 - f.y;
-  if (mL < M) { ax += (1 - mL / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mL / M) * PUSH * TANJANT; }
-  if (mR < M) { ax -= (1 - mR / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mR / M) * PUSH * TANJANT; }
-  if (mU < M) { ay += (1 - mU / M) * PUSH; ax += (f.x > 0 ? -1 : 1) * (1 - mU / M) * PUSH * TANJANT; }
-  if (mD < M) { ay -= (1 - mD / M) * PUSH; ax += (f.x > 0 ? -1 : 1) * (1 - mD / M) * PUSH * TANJANT; }
+  if (mL < M) { ax += (1 - mL / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mL / M) * PUSH * TANGENT; }
+  if (mR < M) { ax -= (1 - mR / M) * PUSH; ay += (f.y > 0 ? -1 : 1) * (1 - mR / M) * PUSH * TANGENT; }
+  if (mU < M) { ay += (1 - mU / M) * PUSH; ax += (f.x > 0 ? -1 : 1) * (1 - mU / M) * PUSH * TANGENT; }
+  if (mD < M) { ay -= (1 - mD / M) * PUSH; ax += (f.x > 0 ? -1 : 1) * (1 - mD / M) * PUSH * TANGENT; }
   tx = clamp(tx, -W / 2 + 50, W / 2 - 50);
   ty = clamp(ty, -H / 2 + 50, H / 2 - 50);
-  // diken itmesi: yaklaşılan diken balığı kendi yolundan geri iter
+  // spike push: spikes deflect fish approaching them
   for (const s of spikes) {
     const dx = f.x - s.x, dy = f.y - s.y;
     const dd = Math.hypot(dx, dy);
-    const guvenli = s.r + 80;
-    if (dd < guvenli && dd > 0.5) {
-      const it = (1 - dd / guvenli) * 430;
-      ax += dx / dd * it; ay += dy / dd * it;
+    const safe = s.r + 80;
+    if (dd < safe && dd > 0.5) {
+      const push = (1 - dd / safe) * 430;
+      ax += dx / dd * push; ay += dy / dd * push;
     }
   }
   const k = 1 - Math.pow(0.001, dt);
@@ -372,12 +390,12 @@ function steer(f, dt) {
 }
 
 function tryEat(f) {
-  // yem: patlama parçaları (tek) yenince silinir, normal yem ışınlanır
+  // explosion bits ("single") are consumed once; normal pellets teleport elsewhere
   for (let i = foods.length - 1; i >= 0; i--) {
     const o = foods[i];
     if (Math.hypot(o.x - f.x, o.y - f.y) < radiusOf(f.mass) + 9) {
-      f.mass = Math.min(f.mass + (o.tek ? 0.3 : 0.15) / Math.pow(f.mass, 0.5), 35);
-      if (o.tek) foods.splice(i, 1);
+      f.mass = Math.min(f.mass + (o.single ? 0.3 : 0.15) / Math.pow(f.mass, 0.5), 35);
+      if (o.single) foods.splice(i, 1);
       else { o.x = rnd(-W / 2 + 60, W / 2 - 60); o.y = rnd(-H / 2 + 60, H / 2 - 60); o.id = "y" + (++foodSeq); }
     }
   }
@@ -386,44 +404,44 @@ function tryEat(f) {
     if (f.mass > other.mass * 1.3 && dist(f, other) < radiusOf(f.mass) * 0.85) {
       f.mass = Math.min(f.mass + other.mass * 0.6 / Math.pow(f.mass, 0.6), 35);
       other.alive = false;
-      addFeed("kac", `${other.name} yendi! (${f.name} +${(other.mass * .6).toFixed(1)} kg)`);
+      addFeed("flee", `${other.name} was eaten! (${f.name} +${(other.mass * .6).toFixed(1)} kg)`);
       const victim = other;
       setTimeout(() => {
-        const canliAI = fishes.filter((x) => x.alive && !x.isPlayer).length;
-        if (canliAI >= AI_COUNT) return;
-        dogur(victim);
+        const aliveAI = fishes.filter((x) => x.alive && !x.isPlayer).length;
+        if (aliveAI >= AI_COUNT) return;
+        respawn(victim);
       }, 2500);
     }
   }
 }
 
-function dogur(victim) {
+function respawn(victim) {
   victim.mass = rnd(0.7, 3.0);
   victim.x = rnd(-W / 2 + 120, W / 2 - 120); victim.y = rnd(-H / 2 + 100, H / 2 - 100);
-  victim.vx = victim.vy = 0; victim.mode = "dolan"; victim.alive = true;
+  victim.vx = victim.vy = 0; victim.mode = "roam"; victim.alive = true;
   victim.nextThink = Date.now() + 500;
 }
 
-/* ── dikenler: çarpan patlar, parçaları yem olur ───────── */
-function patlatKontrol(f) {
+/* ── spikes: touch one and you explode into pellets ────── */
+function spikeCheck(f) {
   for (const s of spikes) {
     if (dist(f, s) < s.r + radiusOf(f.mass) * 0.7) {
       f.alive = false;
-      const adet = Math.round(5 + Math.min(7, f.mass));
-      for (let i = 0; i < adet; i++) {
+      const bits = Math.round(5 + Math.min(7, f.mass));
+      for (let i = 0; i < bits; i++) {
         foods.push({
-          id: "y" + (++foodSeq), tek: true,
+          id: "y" + (++foodSeq), single: true,
           x: clamp(f.x + rnd(-100, 100), -W / 2 + 40, W / 2 - 40),
           y: clamp(f.y + rnd(-100, 100), -H / 2 + 40, H / 2 - 40),
         });
       }
-      addFeed("kac", `PAT! ${f.name} dikene çarptı — ${adet} parça yem saçıldı`);
+      addFeed("flee", `BOOM! ${f.name} hit a spike — ${bits} pellets scattered`);
       return;
     }
   }
 }
 
-/* ── ana döngü ─────────────────────────────────────────── */
+/* ── main loop ─────────────────────────────────────────── */
 let last = Date.now();
 setInterval(() => {
   const now = Date.now();
@@ -439,21 +457,22 @@ setInterval(() => {
     f.y = clamp(f.y + f.vy * dt, -H / 2 + 30, H / 2 - 30);
     if (Math.hypot(f.vx, f.vy) > 8) f.dir = Math.atan2(f.vy, f.vx);
     tryEat(f);
-    patlatKontrol(f);
+    spikeCheck(f);
   }
 }, 33);
 
+// population watchdog: keep the AI count at AI_COUNT
 setInterval(() => {
-  const canliAI = fishes.filter((f) => f.alive && !f.isPlayer).length;
-  if (canliAI >= AI_COUNT) return;
-  const olu = fishes.find((f) => !f.alive);
-  if (olu) dogur(olu);
+  const aliveAI = fishes.filter((f) => f.alive && !f.isPlayer).length;
+  if (aliveAI >= AI_COUNT) return;
+  const dead = fishes.find((f) => !f.alive);
+  if (dead) respawn(dead);
 }, 3000);
 
-/* ── WebSocket gerçek zamanlı katman ───────────────────── */
+/* ── WebSocket real-time layer ─────────────────────────── */
 const sessions = new Map();   // connId → sess
 let connSeq = 0;
-const izleyiciSayisi = () => [...sessions.values()].filter((s) => !s.oyuncu).length;
+const spectatorCount = () => [...sessions.values()].filter((s) => !s.player).length;
 
 function fanout(event, data) {
   const msg = JSON.stringify({ t: event, ...data });
@@ -462,125 +481,117 @@ function fanout(event, data) {
   }
 }
 
-// istemci otomatik güncelleme: index.html değişince mtime versiyonu değişir,
-// clientlar uyuşmazlık görürse kendini yeniler
-function guncelVersiyon() {
-  try { return fs.statSync(path.join(__dirname, "index.html")).mtimeMs.toString(36); }
-  catch { return "0"; }
-}
-
 setInterval(() => {
-  fanout("durum", {
-    sunucuSaati: Date.now(),
-    v: guncelVersiyon(),
-    oyuncu: tokens.size, oyuncuLimit: MAX_PLAYERS,
-    izleyici: izleyiciSayisi(), izleyiciAdlari: [...sessions.values()]
-      .filter((s) => !s.oyuncu && s.nick).map((s) => s.nick).slice(0, 30),
-    baliklar: fishes.map((f) => {
-      const taze = f.etiket && Date.now() - f.etiketZaman < 3200;
+  fanout("state", {
+    serverTime: Date.now(),
+    v: currentVersion(),
+    players: tokens.size, playerLimit: MAX_PLAYERS,
+    spectators: spectatorCount(),
+    spectatorNames: [...sessions.values()].filter((s) => !s.player && s.nick).map((s) => s.nick).slice(0, 30),
+    fish: fishes.map((f) => {
+      const fresh = f.label && Date.now() - f.labelAt < 3200;
       return {
-        id: f.id, ad: f.name, kg: +f.mass.toFixed(1), x: Math.round(f.x), y: Math.round(f.y),
-        dir: +f.dir.toFixed(2), canli: f.alive, oyuncu: f.isPlayer,
-        renk: f.renk, mod: f.mode,
-        etiket: taze ? `${f.etiket} ${f.yonOk || ""}`.trim() : null,
-        etiketRenk: f.etiketRenk, sprint: f.sprint,
+        id: f.id, name: f.name, kg: +f.mass.toFixed(1), x: Math.round(f.x), y: Math.round(f.y),
+        dir: +f.dir.toFixed(2), alive: f.alive, player: f.isPlayer,
+        color: f.color, mode: f.mode,
+        label: fresh ? `${f.label} ${f.arrow || ""}`.trim() : null,
+        labelColor: f.labelColor, sprint: f.sprint,
       };
     }),
-    yemler: foods.map((o) => ({ id: o.id, x: Math.round(o.x), y: Math.round(o.y) })),
-    dikenler: spikes.map((s) => ({ x: Math.round(s.x), y: Math.round(s.y), r: s.r })),
+    foods: foods.map((o) => ({ id: o.id, x: Math.round(o.x), y: Math.round(o.y) })),
+    spikes: spikes.map((s) => ({ x: Math.round(s.x), y: Math.round(s.y), r: s.r })),
   });
 }, 100);
 
 function cleanNick(s) {
   return String(s || "").replace(/[<>&]/g, "").trim().slice(0, 16);
 }
-function yeniToken() {
+function newToken() {
   return crypto.randomBytes(9).toString("hex");
 }
 
 const wss = new WebSocketServer({ noServer: true });
 
-function onMesaj(sess, raw) {
+function onMessage(sess, raw) {
   let m;
   try { m = JSON.parse(raw); } catch { return; }
-  if (m.t === "katil") {
-    const nick = cleanNick(m.nick) || "Misafir";
-    const eskiToken = sess.token;
-    // ── izleyici olmak (oyuncuyken bile) ──
-    if (m.izleyici) {
-      if (eskiToken && tokens.has(eskiToken)) {
-        // oyunculuktan ayrılıyor: balığı Jev'e devret
-        const fish = fishes.find((f) => f.id === tokens.get(eskiToken));
-        if (fish) { fish.isPlayer = false; fish.in.has = false; fish.nextThink = Date.now(); fish.etiket = null; }
-        tokens.delete(eskiToken);
-        addFeed("dolan", `${nick} izleyici koltuğuna geçti`);
-      } else if (!sess.katildi) {
-        addFeed("dolan", `${nick} izleyici olarak katıldı`);
+  if (m.t === "join") {
+    const nick = cleanNick(m.nick) || "Guest";
+    const oldToken = sess.token;
+    // ── become a spectator (also from player) ──
+    if (m.spectator) {
+      if (oldToken && tokens.has(oldToken)) {
+        const fish = fishes.find((f) => f.id === tokens.get(oldToken));
+        if (fish) { fish.isPlayer = false; fish.input.has = false; fish.nextThink = Date.now(); fish.label = null; }
+        tokens.delete(oldToken);
+        addFeed("roam", `${nick} moved to the spectator seats`);
+      } else if (!sess.joined) {
+        addFeed("roam", `${nick} joined as a spectator`);
       }
-      sess.katildi = true; sess.oyuncu = false; sess.nick = nick;
-      if (!sess.token || !viewers.has(sess.token)) sess.token = "v" + yeniToken();
+      sess.joined = true; sess.player = false; sess.nick = nick;
+      if (!sess.token || !viewers.has(sess.token)) sess.token = "v" + newToken();
       viewers.set(sess.token, nick);
-      return sess.ws.send(JSON.stringify({ t: "rol", rol: "izleyici", token: sess.token, nick }));
+      return sess.ws.send(JSON.stringify({ t: "role", role: "spectator", token: sess.token, nick }));
     }
-    // ── oyuncu olmak ──
+    // ── become a player ──
     let fish = null, token = (m.token && tokens.has(m.token)) ? m.token : null;
     if (token) fish = fishes.find((f) => f.id === tokens.get(token));
-    if (!fish && eskiToken && tokens.has(eskiToken)) {
-      token = eskiToken; fish = fishes.find((f) => f.id === tokens.get(token));   // aynı balıkta nick değişimi
+    if (!fish && oldToken && tokens.has(oldToken)) {
+      token = oldToken; fish = fishes.find((f) => f.id === tokens.get(token));   // rename same fish
     }
     if (!fish && tokens.size >= MAX_PLAYERS) {
-      sess.oyuncu = false; sess.nick = nick;
-      if (!sess.token || !viewers.has(sess.token)) sess.token = "v" + yeniToken();
+      sess.player = false; sess.nick = nick;
+      if (!sess.token || !viewers.has(sess.token)) sess.token = "v" + newToken();
       viewers.set(sess.token, nick);
-      return sess.ws.send(JSON.stringify({ t: "rol", rol: "izleyici", token: sess.token, nick, not: "Kadro dolu (10/10) — izleyici oldun" }));
+      return sess.ws.send(JSON.stringify({ t: "role", role: "spectator", token: sess.token, nick, note: "Player roster is full (5/5) — you are a spectator" }));
     }
     if (!fish) {
       fish = makeFish(nick, PLAYER_HUES[tokens.size % PLAYER_HUES.length], 1.0, true);
-      token = yeniToken();
+      token = newToken();
       tokens.set(token, fish.id);
-      addFeed("yem", `${nick} oyuna katıldı (oyuncu ${tokens.size}/${MAX_PLAYERS})`);
+      addFeed("eat_food", `${nick} joined the game (player ${tokens.size}/${MAX_PLAYERS})`);
     } else {
-      if (fish.name !== nick) addFeed("yem", `${fish.name} artık ${nick}`);
-      fish.name = nick;                                  // nick değişimi
+      if (fish.name !== nick) addFeed("eat_food", `${fish.name} is now known as ${nick}`);
+      fish.name = nick;                                   // nickname change
     }
-    if (eskiToken && eskiToken !== token && viewers.has(eskiToken)) viewers.delete(eskiToken);
-    sess.katildi = true; sess.oyuncu = true; sess.token = token; sess.fishId = fish.id; sess.nick = nick;
-    sess.ws.send(JSON.stringify({ t: "rol", rol: "oyuncu", token, fishId: fish.id, nick }));
+    if (oldToken && oldToken !== token && viewers.has(oldToken)) viewers.delete(oldToken);
+    sess.joined = true; sess.player = true; sess.token = token; sess.fishId = fish.id; sess.nick = nick;
+    sess.ws.send(JSON.stringify({ t: "role", role: "player", token, fishId: fish.id, nick }));
     return;
   }
-  if (m.t === "girdi") {
-    const fid = sess.oyuncu && sess.token && tokens.get(sess.token);
+  if (m.t === "input") {
+    const fid = sess.player && sess.token && tokens.get(sess.token);
     const fish = fid && fishes.find((f) => f.id === fid);
     if (!fish || !fish.alive) return;
-    fish.in.x = +m.x || 0; fish.in.y = +m.y || 0;
-    fish.in.down = !!m.down; fish.in.has = true;
+    fish.input.x = +m.x || 0; fish.input.y = +m.y || 0;
+    fish.input.down = !!m.down; fish.input.has = true;
   }
 }
 
-/* ── dünya sıfırlama ───────────────────────────────────── */
+/* ── world reset ───────────────────────────────────────── */
 function resetWorld() {
-  const oyuncuKopyalari = [...tokens.entries()]
-    .map(([tok, fid]) => ({ tok, fid, eski: fishes.find((f) => f.id === fid) }))
-    .filter((x) => x.eski);
+  const playerCopies = [...tokens.entries()]
+    .map(([tok, fid]) => ({ tok, fid, old: fishes.find((f) => f.id === fid) }))
+    .filter((x) => x.old);
   fishes.length = 0;
   for (let i = 0; i < AI_COUNT; i++) {
     makeFish(AI_NAMES[i], 0.02 + (i % 20) / 20 * 0.95, rnd(0.7, 3.0), false);
   }
+  for (const o of playerCopies) {
+    const nf = makeFish(o.old.name, o.old._hue ?? 0.12, 1.0, true);
+    nf.id = o.fid;                       // keep the token mapping intact
+  }
   foods.length = 0;
   for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
   spawnSpikes();
-  for (const o of oyuncuKopyalari) {
-    const nf = makeFish(o.eski.name, o.eski._hue ?? 0.12, 1.0, true);
-    nf.id = o.fid;
-  }
   feed.length = 0;
-  kararlar.clear();
+  decisions.clear();
   stats = { count: 0, latSum: 0, latN: 0, fallback: 0 };
-  addFeed("dolan", "⟳ Oyun sıfırlandı — herkes 1 kg'dan başladı");
+  addFeed("roam", "⟳ World reset — everyone starts from 1 kg");
   fanout("reset", { ok: true });
 }
 
-/* ── HTTP: statik + host yönetimi ──────────────────────── */
+/* ── HTTP: static files + host management API ──────────── */
 function send(res, code, obj) {
   const isHtml = typeof obj === "string" || Buffer.isBuffer(obj);
   const body = typeof obj === "string" ? obj : isHtml ? obj.toString("utf8") : JSON.stringify(obj);
@@ -600,24 +611,24 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && url === "/healthz") {
     return send(res, 200, {
       ok: true, hasKey: !!readKey(), ws: sessions.size,
-      karar: stats.count, oyuncu: tokens.size,
+      decisions: stats.count, players: tokens.size,
     });
   }
-  if (isLocal(req) && req.method === "GET" && url === "/yonetim") {
+  if (isLocal(req) && req.method === "GET" && url === "/manage") {
     return send(res, 200, {
-      oyuncular: [...tokens.entries()].map(([tok, fid]) => {
+      players: [...tokens.entries()].map(([tok, fid]) => {
         const f = fishes.find((x) => x.id === fid);
-        return f ? { token: tok, ad: f.name, kg: +f.mass.toFixed(1) } : null;
+        return f ? { token: tok, name: f.name, kg: +f.mass.toFixed(1) } : null;
       }).filter(Boolean),
-      izleyiciler: [...sessions.values()]
-        .filter((s) => !s.oyuncu)
+      spectators: [...sessions.values()]
+        .filter((s) => !s.player)
         .map((s) => ({
-          connId: s.connId, nick: s.nick || "anonim",
-          dk: Math.max(1, Math.round((Date.now() - s.since) / 60000)),
+          connId: s.connId, nick: s.nick || "anonymous",
+          min: Math.max(1, Math.round((Date.now() - s.since) / 60000)),
         })),
     });
   }
-  if (isLocal(req) && req.method === "POST" && url === "/yonetim/cikar") {
+  if (isLocal(req) && req.method === "POST" && url === "/manage/remove") {
     let body = "";
     req.on("data", (c) => { body += c; if (body.length > 2048) req.destroy(); });
     req.on("end", () => {
@@ -626,8 +637,8 @@ const server = http.createServer((req, res) => {
         if (p.connId != null) {
           const s = sessions.get(p.connId);
           if (s) {
-            addFeed("kac", `${s.nick || "anonim izleyici"} yayından çıkarıldı`);
-            try { s.ws.close(4001, "cikarildin"); } catch {}
+            addFeed("flee", `${s.nick || "anonymous spectator"} was removed from the stream`);
+            try { s.ws.close(4001, "removed"); } catch {}
             sessions.delete(p.connId);
           }
           return send(res, 200, { ok: true });
@@ -635,16 +646,15 @@ const server = http.createServer((req, res) => {
         if (p.token) {
           const fid = tokens.get(p.token);
           const f = fid && fishes.find((x) => x.id === fid);
-          if (f) { f.isPlayer = false; f.in.has = false; f.nextThink = Date.now(); addFeed("kac", `${f.name} oyunculuktan çıkarıldı (Jev devraldı)`); }
+          if (f) { f.isPlayer = false; f.input.has = false; f.nextThink = Date.now(); addFeed("flee", `${f.name} was kicked — Jev took over`); }
           tokens.delete(p.token);
-          // o tokenla bağlı oturumu da kapat
           for (const s of [...sessions.values()]) {
-            if (s.token === p.token) { try { s.ws.close(4001, "cikarildin"); } catch {} sessions.delete(s.connId); }
+            if (s.token === p.token) { try { s.ws.close(4001, "removed"); } catch {} sessions.delete(s.connId); }
           }
           return send(res, 200, { ok: true });
         }
-        send(res, 400, { error: "connId veya token gerekli" });
-      } catch { send(res, 400, { error: "geçersiz" }); }
+        send(res, 400, { error: "connId or token required" });
+      } catch { send(res, 400, { error: "invalid" }); }
     });
     return;
   }
@@ -652,10 +662,16 @@ const server = http.createServer((req, res) => {
     resetWorld();
     return send(res, 200, { ok: true });
   }
-  send(res, 404, { error: "bulunamadı" });
+  send(res, 404, { error: "not found" });
 });
 
 const PLAYER_HUES = [0.12, 0.07, 0.32, 0.46, 0.62, 0.72, 0.85, 0.93, 0.55, 0.27];
+
+// clients auto-update: index.html mtime acts as the server version stamp
+function currentVersion() {
+  try { return fs.statSync(path.join(__dirname, "index.html")).mtimeMs.toString(36); }
+  catch { return "0"; }
+}
 
 server.on("upgrade", (req, socket, head) => {
   const { pathname, searchParams } = new URL(req.url, "http://x");
@@ -666,21 +682,21 @@ server.on("upgrade", (req, socket, head) => {
     const fishId = token && tokens.get(token);
     const sess = {
       connId: ++connSeq, ws, token: token || null, fishId: fishId || null,
-      oyuncu: !!fishId, nick: token ? viewers.get(token) || null : null,
+      player: !!fishId, nick: token ? viewers.get(token) || null : null,
       since: Date.now(), ip: req.socket.remoteAddress,
     };
     sessions.set(sess.connId, sess);
     ws.send(JSON.stringify({
-      t: "acilis", oyuncu: tokens.size, oyuncuLimit: MAX_PLAYERS, izleyici: izleyiciSayisi(),
+      t: "welcome", players: tokens.size, playerLimit: MAX_PLAYERS, spectators: spectatorCount(),
       feed: feed.slice(0, 8),
     }));
-    ws.on("message", (raw) => onMesaj(sess, raw));
+    ws.on("message", (raw) => onMessage(sess, raw));
     ws.on("close", () => {
       sessions.delete(sess.connId);
-      // hayalet oyuncu yok: bağlantısı kopan oyuncunun balığı anında Jev'e geçer
-      if (sess.oyuncu && sess.token && tokens.get(sess.token) === sess.fishId) {
+      // no ghost players: a disconnected player's fish is handed to Jev immediately
+      if (sess.player && sess.token && tokens.get(sess.token) === sess.fishId) {
         const fish = fishes.find((f) => f.id === sess.fishId);
-        if (fish) { fish.isPlayer = false; fish.in.has = false; fish.nextThink = Date.now(); }
+        if (fish) { fish.isPlayer = false; fish.input.has = false; fish.nextThink = Date.now(); }
         tokens.delete(sess.token);
       }
     });
@@ -689,6 +705,6 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(PORT, () => {
-  console.log("Jev Balık Oyunu (WS): http://localhost:%d  (anahtar %s, %d AI balık)",
-    PORT, readKey() ? "yüklü" : "YOK", AI_COUNT);
+  console.log("JEV — The Fish Game: http://localhost:%d  (key %s, %d AI fish)",
+    PORT, readKey() ? "loaded" : "MISSING", AI_COUNT);
 });

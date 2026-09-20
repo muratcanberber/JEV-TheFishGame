@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Jev Balık Oyunu — kararları Jev veriyor</title>
+<title>JEV — The Fish Game · decisions by Jev AI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #041d33; }
@@ -15,8 +15,8 @@
   #hud .b { color: #7fd4ff; font-weight: 700; }
   #feed { margin-top: 6px; border-top: 1px solid rgba(120,190,255,.2); padding-top: 6px; }
   #feed div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .9; }
-  .kac { color: #ff9c8f; } .avla { color: #ffc46b; } .yem { color: #8fe3a2; }
-  .dolan { color: #9fb6c9; } .yerel { color: #b59fff; }
+  .flee { color: #ff9c8f; } .hunt { color: #ffc46b; } .eat_food { color: #8fe3a2; }
+  .roam { color: #9fb6c9; } .local { color: #b59fff; }
   #hint {
     position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10;
     font: 12px ui-monospace, Menlo, monospace; color: rgba(207, 232, 255, .75);
@@ -25,7 +25,7 @@
   #brand { position: fixed; top: 14px; right: 14px; z-index: 9; text-align: right;
     font: 11px ui-monospace, Menlo, monospace; color: rgba(160, 205, 240, .6); }
   #brand b { color: #7fd4ff; }
-  /* ── giriş modalı ── */
+  /* ── entry modal ── */
   #giris {
     position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
     background: rgba(2, 14, 26, .8); backdrop-filter: blur(5px);
@@ -47,10 +47,10 @@
     flex: 1; padding: 11px 0; border-radius: 9px; border: 0; cursor: pointer;
     font: 700 14px -apple-system, "Segoe UI", sans-serif;
   }
-  #btn-oyuncu { background: #ffd34d; color: #42310a; }
-  #btn-izleyici { background: rgba(120, 190, 255, .18); color: #9fd3ff; border: 1px solid rgba(120,190,255,.35) !important; }
+  #btn-player { background: #ffd34d; color: #42310a; }
+  #btn-spectator { background: rgba(120, 190, 255, .18); color: #9fd3ff; border: 1px solid rgba(120,190,255,.35) !important; }
   #giris .not { margin-top: 10px; font: 11px ui-monospace, Menlo, monospace; color: #ff9c8f; min-height: 14px; }
-  /* ── inceleme paneli ── */
+  /* ── Q&A inspector panel ── */
   #inspector {
     position: fixed; top: 64px; right: 14px; z-index: 11; display: none;
     width: 400px; max-height: calc(100vh - 90px); overflow-y: auto;
@@ -63,8 +63,8 @@
   #inspector .qa { margin: 10px 0; padding: 9px 11px; background: rgba(0, 12, 26, .55); border-radius: 9px; }
   #inspector .q { font-weight: 600; color: #ffd98f; margin-bottom: 4px; }
   #inspector .a { font-size: 14px; font-weight: 700; }
-  #inspector .a .kaynak { font: 10px ui-monospace, Menlo, monospace; font-weight: 400; color: #7d9db8; margin-left: 6px; }
-  #inspector .aciklama { font-size: 12px; color: #a8c8e0; margin-top: 3px; }
+  #inspector .a .conf { font: 10px ui-monospace, Menlo, monospace; font-weight: 400; color: #7d9db8; margin-left: 6px; }
+  #inspector .detail { font-size: 12px; color: #a8c8e0; margin-top: 3px; }
   #inspector .gor { font: 11px ui-monospace, Menlo, monospace; color: #a8e0c0; margin: 2px 0 0; }
   .bar { height: 7px; border-radius: 4px; background: rgba(120, 190, 255, .12); margin-top: 3px; overflow: hidden; }
   .bar > i { display: block; height: 100%; border-radius: 4px; background: #58a6d6; }
@@ -80,35 +80,35 @@
 </head>
 <body>
 <div id="hud">
-  <span class="b">JEV KÖPRÜSÜ</span> · <span id="stat-key">bağlanıyor…</span><br>
-  karar: <span id="stat-count">–</span> · ort. <span id="stat-lat">–</span> ms · lider: <span id="stat-lider">–</span><br>
-  oyuncu: <span id="stat-oyuncu">–</span> · izleyici: <span id="stat-izleyici">–</span> <span id="stat-izleyici-ad"></span>
+  <span class="b">JEV BRIDGE</span> · <span id="stat-key">connecting…</span><br>
+  decisions: <span id="stat-count">–</span> · avg <span id="stat-lat">–</span> ms · leader: <span id="stat-lider">–</span><br>
+  players: <span id="stat-players">–</span> · spectators: <span id="stat-spectators">–</span> <span id="stat-spectator-names"></span>
   <div id="feed"></div>
 </div>
-<div id="brand"><b>jev-1.13</b> · System One karar motoru<br><span id="stat-ben">–</span></div>
+<div id="brand"><b>jev-1.13</b> · System One decision engine<br><span id="stat-me">–</span></div>
 <div id="inspector"></div>
-<div id="hint">bağlanıyor…</div>
+<div id="hint">connecting…</div>
 
 <div id="giris">
   <div class="kart">
     <span id="giris-kapat" style="display:none;position:absolute;top:8px;right:14px;cursor:pointer;color:#7d9db8;font-size:16px" onclick="document.getElementById('giris').style.display='none'">×</span>
-    <h2>🐟 Jev Balık Oyunu</h2>
-    <p>Profilini güncelle: lakabını değiştir, balık ile izleyici arasında geçiş yap.</p>
-    <input id="nick" maxlength="16" placeholder="lakabın ne?" autocomplete="off">
+    <h2>🐟 JEV — The Fish Game</h2>
+    <p>Every AI fish here makes its decisions through <b>jev-1.13</b>, a System One decision model. Pick a nickname: play as your own fish, or watch the live world.</p>
+    <input id="nick" maxlength="16" placeholder="your nickname" autocomplete="off">
     <div class="btnler">
-      <button id="btn-oyuncu">🐠 Balık Ol</button>
-      <button id="btn-izleyici">👁 İzleyici Ol</button>
+      <button id="btn-player">🐠 Play as fish</button>
+      <button id="btn-spectator">👁 Watch</button>
     </div>
     <div class="not" id="giris-not"></div>
   </div>
 </div>
-<button id="btn-profil" style="position:fixed;bottom:12px;left:14px;z-index:20;background:rgba(2,20,38,.7);color:#9fd3ff;border:1px solid rgba(120,190,255,.3);border-radius:8px;padding:6px 12px;cursor:pointer;font:12px ui-monospace,Menlo,monospace">👤 profil / rol</button>
+<button id="btn-profile" style="position:fixed;bottom:12px;left:14px;z-index:20;background:rgba(2,20,38,.7);color:#9fd3ff;border:1px solid rgba(120,190,255,.3);border-radius:8px;padding:6px 12px;cursor:pointer;font:12px ui-monospace,Menlo,monospace">👤 profile / role</button>
 
 <script type="module">
 import * as THREE from "three";
 
-/* ── sahne ─────────────────────────────────────────────── */
-const W = 2400, H = 1400;
+/* ── scene ─────────────────────────────────────────────── */
+const W = 1900, H = 1150;
 const scene = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 camera.position.z = 10;
@@ -117,7 +117,7 @@ document.body.appendChild(renderer.domElement);
 function resize() {
   const vw = innerWidth, vh = innerHeight;
   renderer.setSize(vw, vh);
-  // duvar çerçevesi ekrandan taşmasın: kenarlarda boşluk bırak
+  // keep the wall frame fully on screen: leave margins around the world
   const s = Math.min((vw - 48) / W, (vh - 96) / H);
   camera.left = -vw / (2 * s); camera.right = vw / (2 * s);
   camera.top = vh / (2 * s); camera.bottom = -vh / (2 * s);
@@ -142,21 +142,19 @@ const bubbles = [];
 const rnd = (a, b) => a + Math.random() * (b - a);
 const radiusOf = (m) => 15 * Math.pow(m, 0.62);
 
-/* ── görsel fabrikası (yüz ifadeli balık) ──────────────── */
-function fishVisual(renk, isPlayer) {
+/* ── fish visual factory (expressive face) ─────────────── */
+function fishVisual(color, isPlayer) {
   const group = new THREE.Group();
-  const c = new THREE.Color(renk);
+  const c = new THREE.Color(color);
   const body = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: c }));
   body.scale.set(1.45, 1, 1);
   const tail = new THREE.Mesh(new THREE.CircleGeometry(1, 3),
     new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(0.75) }));
   tail.position.x = -1.2; tail.rotation.z = Math.PI / 3;
-  // göz
   const eyeW = new THREE.Mesh(new THREE.CircleGeometry(.24, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   eyeW.position.set(.78, .32, .1);
   const eyeB = new THREE.Mesh(new THREE.CircleGeometry(.11, 10), new THREE.MeshBasicMaterial({ color: 0x0a1a28 }));
   eyeB.position.set(.85, .32, .11);
-  // ağız (duygular buradan)
   const mouth = new THREE.Mesh(new THREE.CircleGeometry(.16, 12), new THREE.MeshBasicMaterial({ color: 0x081522 }));
   mouth.position.set(.95, -.28, .1);
   group.add(tail, body, eyeW, eyeB, mouth);
@@ -170,18 +168,15 @@ function fishVisual(renk, isPlayer) {
     new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: .95 }));
   selRing.visible = false;
   group.add(selRing);
-  // isim + kütle etiketi (her balıkta)
-  const adSprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
-  adSprite.scale.set(110, 24, 1);
-  group.add(adSprite);
+  const nameSprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
+  nameSprite.scale.set(110, 24, 1);
+  group.add(nameSprite);
   scene.add(group);
-  return { group, body, tail, eyeW, eyeB, mouth, ring, selRing, adSprite, label: null, _adText: "", _sonEtiket: null };
+  return { group, body, tail, eyeW, eyeB, mouth, ring, selRing, nameSprite, label: null, _nameText: "", _lastLabel: null };
 }
-function textSprite(v, key, text, color, wScale, yOfs) {
-  if (v["_" + key] === text) return;
-  v["_" + key] = text;
-  const spr = key === "ad" ? v.adSprite : v.label;
-  if (spr && key !== "ad") { v.group.remove(spr); if (spr.material.map) spr.material.map.dispose(); spr.material.dispose(); }
+function textSprite(v, text, color, yOfs) {
+  if (v._nameText === text) return;
+  v._nameText = text;
   const cv = document.createElement("canvas"); cv.width = 512; cv.height = 96;
   const ctx = cv.getContext("2d");
   ctx.font = "bold 44px -apple-system, Segoe UI, sans-serif";
@@ -193,12 +188,10 @@ function textSprite(v, key, text, color, wScale, yOfs) {
   ctx.fillStyle = "#eaf6ff";
   ctx.fillText(text, 256, 50);
   const tex = new THREE.CanvasTexture(cv);
-  if (key === "ad") {
-    if (v.adSprite.material.map) v.adSprite.material.map.dispose();
-    v.adSprite.material.map = tex;
-    v.adSprite.material.needsUpdate = true;
-    v.adSprite.position.set(0, yOfs, .4);
-  }
+  if (v.nameSprite.material.map) v.nameSprite.material.map.dispose();
+  v.nameSprite.material.map = tex;
+  v.nameSprite.material.needsUpdate = true;
+  v.nameSprite.position.set(0, yOfs, .4);
 }
 function setLabel(v, text, color) {
   if (v.label) {
@@ -221,15 +214,14 @@ function setLabel(v, text, color) {
   v.label.position.set(0, .72, .5);
   v.group.add(v.label);
 }
-
 function foodVisual() {
   return new THREE.Mesh(new THREE.CircleGeometry(5, 10), new THREE.MeshBasicMaterial({ color: 0x7fe08f }));
 }
-// diken (patoz) görseli: kırmızı 12 uçlu yıldız
-let spikeGorselleri = null;
-function dikenleriCiz(liste) {
-  if (spikeGorselleri || !liste || !liste.length) return;
-  spikeGorselleri = liste.map((s) => {
+// spike (mine) visual: red 12-point star
+let spikeVisuals = null;
+function drawSpikes(list) {
+  if (spikeVisuals || !list || !list.length) return;
+  spikeVisuals = list.map((s) => {
     const cv = document.createElement("canvas"); cv.width = 128; cv.height = 128;
     const ctx = cv.getContext("2d");
     ctx.translate(64, 64);
@@ -251,45 +243,44 @@ function dikenleriCiz(liste) {
   });
 }
 
-/* ── durum: anlık görüntü çifti + ölü-hesap enterpolasyon ─
-   Sunucu 250 ms'de bir kare yollar; çizim iki kare arasında
-   yumuşak geçiş yapar. Paket gecikse bile görüntü akıcıdır. */
-const fishes = new Map();     // id → { gorsel, hedef }
+/* ── state: snapshot pair + dead-reckoning interpolation ─
+   The server pushes a world frame every 100 ms; the client renders
+   a smooth exponential chase, so packet bursts never teleport fish. */
+const fishes = new Map();     // id → { visual, target }
 const foods = new Map();
-const qaMap = new Map();
+const qaMap = new Map();      // id → latest readable Q&A
 const stats = { count: 0, latSum: 0, latN: 0 };
-let benId = null, benToken = sessionStorage.jev_token || null;
-let benNick = sessionStorage.jev_nick || null;
-let rol = sessionStorage.jev_rol || null;
+let myId = null, myToken = sessionStorage.jev_token || null;
+let myNick = sessionStorage.jev_nick || null;
+let role = sessionStorage.jev_role || null;
 let selectedId = null;
 let prevT = 0, curT = 0;
 const snapPrev = new Map(), snapCur = new Map();
 const foodPrev = new Map(), foodCur = new Map();
-const RENDER_DELAY = 260;     // bilinçli gecikme: akıcılık bedeli
 
-/* ── WebSocket taşıması: tek kalıcı soket, sunucu itiyor ── */
-function kaynakCls(k) {
-  return k.kaynak === "jev" ? ({ "KAÇIYOR": "kac", "AVLANIYOR": "avla", "YEM ARIZ": "yem", "DOLANIYOR": "dolan" }[k.qa?.[0]?.c] || "dolan") : "yerel";
+/* ── WebSocket transport: one persistent socket, server pushes ── */
+function decisionClass(k) {
+  return k.source === "jev" ? ({ "FLEEING": "flee", "HUNTING": "hunt", "SEEKING FOOD": "eat_food", "ROAMING": "roam" }[k.qa?.[0]?.a] || "roam") : "local";
 }
 let ws = null;
-let bekleyenKatil = null;
-function bindWs(socket) {
+let pendingJoin = null;
+function bindSocket(socket) {
   socket.addEventListener("open", () => {
-    // oturumu varsa otomatik katıl (sunucu restart'ı sonrası da çalışır)
-    if (benNick) {
+    // auto-join on reconnect (survives server restarts)
+    if (myNick) {
       socket.send(JSON.stringify({
-        t: "katil", nick: benNick,
-        izleyici: rol !== "oyuncu", token: benToken,
+        t: "join", nick: myNick,
+        spectator: role !== "player", token: myToken,
       }));
-    } else if (bekleyenKatil) {
-      socket.send(JSON.stringify({ t: "katil", ...bekleyenKatil }));
-      bekleyenKatil = null;
+    } else if (pendingJoin) {
+      socket.send(JSON.stringify({ t: "join", ...pendingJoin }));
+      pendingJoin = null;
     }
   });
   socket.addEventListener("message", (e) => {
     const d = JSON.parse(e.data);
-    if (d.t === "durum") {
-      // otomatik güncelleme: sunucu versiyonu değiştiyse depolamayı temizle ve kendini yenile
+    if (d.t === "state") {
+      // auto-update: if the server version differs from ours, wipe storage & reload
       if (d.v) {
         if (!window.__jevV) window.__jevV = d.v;
         else if (window.__jevV !== d.v) {
@@ -301,86 +292,86 @@ function bindWs(socket) {
           return;
         }
       }
-      document.getElementById("stat-key").textContent = "bağlı (socket)";
-      document.getElementById("stat-oyuncu").textContent = `${d.oyuncu}/${d.oyuncuLimit}`;
-      document.getElementById("stat-izleyici").textContent = d.izleyici;
-      document.getElementById("stat-izleyici-ad").textContent = d.izleyiciAdlari.length ? "· " + d.izleyiciAdlari.join(", ") : "";
+      document.getElementById("stat-key").textContent = "connected (socket)";
+      document.getElementById("stat-players").textContent = `${d.players}/${d.playerLimit}`;
+      document.getElementById("stat-spectators").textContent = d.spectators;
+      document.getElementById("stat-spectator-names").textContent = d.spectatorNames.length ? "· " + d.spectatorNames.join(", ") : "";
       snapPrev.clear();
       for (const [k2, v] of snapCur) snapPrev.set(k2, v);
-      prevT = curT; curT = d.sunucuSaati;
+      prevT = curT; curT = d.serverTime;
       snapCur.clear();
-      let en = null;
-      for (const b of d.baliklar) {
+      let leader = null;
+      for (const b of d.fish) {
         snapCur.set(b.id, b);
         if (!snapPrev.has(b.id)) snapPrev.set(b.id, b);
         let f = fishes.get(b.id);
-        if (!f) { f = { gorsel: fishVisual(b.renk, b.oyuncu) }; fishes.set(b.id, f); }
-        f.hedef = b;
-        if (b.canli && (!en || b.kg > en.kg)) en = b;
+        if (!f) { f = { visual: fishVisual(b.color, b.player) }; fishes.set(b.id, f); }
+        f.target = b;
+        if (b.alive && (!leader || b.kg > leader.kg)) leader = b;
       }
-      document.getElementById("stat-lider").textContent = en ? `${en.ad} (${en.kg} kg)` : "–";
+      document.getElementById("stat-leader").textContent = leader ? `${leader.name} (${leader.kg} kg)` : "–";
       foodPrev.clear();
       for (const [k2, v2] of foodCur) foodPrev.set(k2, v2);
       foodCur.clear();
-      for (const y of d.yemler) {
+      for (const y of d.foods) {
         foodCur.set(y.id, y);
         if (!foodPrev.has(y.id)) foodPrev.set(y.id, y);
         let o = foods.get(y.id);
         if (!o) { o = { mesh: foodVisual() }; scene.add(o.mesh); foods.set(y.id, o); }
       }
-      dikenleriCiz(d.dikenler);
-    } else if (d.t === "karar") {
+      drawSpikes(d.spikes);
+    } else if (d.t === "decision") {
       const k = d;
       qaMap.set(k.id, k);
-      if (k.kaynak === "jev") { stats.count++; stats.latSum += k.ms; stats.latN++; }
-      feedAdd(kaynakCls(k), `${k.ad} → ${k.qa?.[0]?.c || ""}${k.kaynak === "jev" ? ` (${k.ms}ms)` : " (yerel)"}`);
+      if (k.source === "jev") { stats.count++; stats.latSum += k.ms; stats.latN++; }
+      feedAdd(decisionClass(k), `${k.name} → ${k.qa?.[0]?.a || ""}${k.source === "jev" ? ` (${k.ms}ms)` : " (local)"}`);
       const f = fishes.get(k.id);
       if (f) {
         const b = snapCur.get(k.id);
-        setLabel(f.gorsel, k.qa?.[0]?.c?.split(" ")[0] + (b?.sprint ? " ‼" : ""), k.qa?.[0]?.renk || "#9fb6c9");
+        setLabel(f.visual, k.qa?.[0]?.a?.split(" ")[0] + (b?.sprint ? " ‼" : ""), k.qa?.[0]?.color || "#9fb6c9");
       }
       if (selectedId === k.id) renderInspector(k.id);
-    } else if (d.t === "acilis") {
+    } else if (d.t === "welcome") {
       (d.feed || []).slice().reverse().forEach((x) => feedAdd(x.cls, x.text));
-    } else if (d.t === "rol") {
-      sessionStorage.jev_token = d.token; sessionStorage.jev_nick = d.nick; sessionStorage.jev_rol = d.rol;
-      benToken = d.token; benNick = d.nick; rol = d.rol;
-      if (d.rol === "oyuncu") benId = d.fishId;
-      basla(d.rol);
-      if (d.not) feedAdd("yerel", d.not);
+    } else if (d.t === "role") {
+      sessionStorage.jev_token = d.token; sessionStorage.jev_nick = d.nick; sessionStorage.jev_role = d.role;
+      myToken = d.token; myNick = d.nick; role = d.role;
+      if (d.role === "player") myId = d.fishId;
+      start(d.role);
+      if (d.note) feedAdd("local", d.note);
     } else if (d.t === "reset") {
-      for (const [, f] of fishes) scene.remove(f.gorsel.group);
+      for (const [, f] of fishes) scene.remove(f.visual.group);
       fishes.clear();
-      if (spikeGorselleri) { spikeGorselleri.forEach((s) => scene.remove(s)); spikeGorselleri = null; }
+      if (spikeVisuals) { spikeVisuals.forEach((s) => scene.remove(s)); spikeVisuals = null; }
       for (const [, o] of foods) scene.remove(o.mesh);
       foods.clear(); foodPrev.clear(); foodCur.clear();
       qaMap.clear(); snapPrev.clear(); snapCur.clear();
       stats.count = 0; stats.latSum = 0; stats.latN = 0;
       feedEl.innerHTML = "";
       if (selectedId) { selectedId = null; insp.style.display = "none"; }
-      feedAdd("dolan", "⟳ oyun sıfırlandı — yeni dünya geliyor");
+      feedAdd("roam", "⟳ world reset — a fresh sea is loading");
     }
   });
   socket.addEventListener("close", (e) => {
     if (e.code === 4001) {
-      document.getElementById("stat-key").textContent = "host tarafından çıkarıldın";
-      document.getElementById("hint").textContent = "bu oturum host tarafından sonlandırıldı — sayfayı yenileerek tekrar katılabilirsin";
-      return;                                            // atılanlar otomatik geri bağlanmaz
+      document.getElementById("stat-key").textContent = "removed by host";
+      document.getElementById("hint").textContent = "this session was ended by the host — refresh the page to rejoin";
+      return;                                            // removed clients do not auto-reconnect
     }
-    document.getElementById("stat-key").textContent = "yeniden bağlanıyor…";
+    document.getElementById("stat-key").textContent = "reconnecting…";
     setTimeout(baglan, 1200);
   });
   socket.addEventListener("error", () => {});
 }
 function baglan() {
-  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" + (benToken ? "?token=" + encodeURIComponent(benToken) : ""));
-  bindWs(ws);
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" + (myToken ? "?token=" + encodeURIComponent(myToken) : ""));
+  bindSocket(ws);
 }
 baglan();
-// render hatalarını görünür yap (kara ekran teşhisi için)
+// surface render errors in the HUD instead of a silent black screen
 window.addEventListener("error", (e) => {
   const el = document.getElementById("stat-key");
-  if (el) el.textContent = "hata: " + (e.message || "bilinmeyen").slice(0, 40);
+  if (el) el.textContent = "error: " + (e.message || "unknown").slice(0, 40);
 });
 
 const feedEl = document.getElementById("feed");
@@ -391,32 +382,36 @@ function feedAdd(cls, text) {
   while (feedEl.children.length > 9) feedEl.lastChild.remove();
 }
 
-/* ── giriş (nick) ──────────────────────────────────────── */
+/* ── entry (nickname) ──────────────────────────────────── */
 const girisEl = document.getElementById("giris");
-function katil(izleyici) {
+function joinGame(spectator) {
   const nick = document.getElementById("nick").value.trim();
-  if (!nick) { document.getElementById("giris-not").textContent = "bir lakap yaz :)"; return; }
-  const m = { nick, izleyici };
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "katil", ...m }));
-  else { bekleyenKatil = m; document.getElementById("giris-not").textContent = "bağlanıyor…"; }
+  if (!nick) { document.getElementById("giris-not").textContent = "pick a nickname :)"; return; }
+  const m = { nick, spectator };
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "join", ...m }));
+  else { pendingJoin = m; document.getElementById("giris-not").textContent = "connecting…"; }
 }
-document.getElementById("btn-oyuncu").onclick = () => katil(false);
-document.getElementById("btn-izleyici").onclick = () => katil(true);
-function basla(rolDeg) {
+document.getElementById("btn-player").onclick = () => joinGame(false);
+document.getElementById("btn-spectator").onclick = () => joinGame(true);
+document.getElementById("btn-profile").onclick = () => {
+  document.getElementById("nick").value = myNick || "";
+  document.getElementById("giris-kapat").style.display = myNick ? "block" : "none";
+  girisEl.style.display = "flex";
+};
+function start(roleNow) {
   girisEl.style.display = "none";
-  document.getElementById("stat-ben").textContent =
-    rolDeg === "oyuncu" ? `${benNick} (senin balığın)` : `${benNick || "izleyici"} · izleme modu`;
-  document.getElementById("hint").textContent = rolDeg === "oyuncu"
-    ? "fare: yönlendir · basılı tut: hafif hızlan · balığa tıkla: Jev kararları"
-    : "canlı yayın — balığa tıkla, Jev'in soru-cevap kararlarını gör";
-  if (rolDeg === "oyuncu" && benId) {
-    const f = fishes.get(benId);
-    if (f) f.gorsel.selRing.visible = true;
+  document.getElementById("stat-me").textContent =
+    roleNow === "player" ? `${myNick} (your fish)` : `${myNick || "spectator"} · watch mode`;
+  document.getElementById("hint").textContent = roleNow === "player"
+    ? "mouse: steer · hold: boost · click a fish: Jev decisions"
+    : "live stream — click any fish to read its Jev Q&A decisions";
+  if (roleNow === "player" && myId) {
+    const f = fishes.get(myId);
+    if (f) f.visual.selRing.visible = true;
   }
 }
-// eski oturum: soket açılınca otomatik katıl (bindWs "open" içinde hallediyor)
 
-/* ── oyuncu girdisi ────────────────────────────────────── */
+/* ── player input: event-driven over the socket ────────── */
 function toWorld(cx, cy) {
   const vw = innerWidth, vh = innerHeight;
   const s = Math.min(vw / W, vh / H);
@@ -428,7 +423,7 @@ addEventListener("mousemove", (e) => {
   const p = toWorld(e.clientX, e.clientY);
   mouse.x = p.x; mouse.y = p.y; mouse.has = true;
 });
-addEventListener("mousedown", (e) => { downAt = { x: e.clientX, y: e.clientY, t: performance.now() }; if (rol === "oyuncu") mouse.down = true; });
+addEventListener("mousedown", (e) => { downAt = { x: e.clientX, y: e.clientY, t: performance.now() }; if (role === "player") mouse.down = true; });
 addEventListener("mouseup", () => mouse.down = false);
 addEventListener("click", (e) => {
   if (!downAt) return;
@@ -439,64 +434,64 @@ addEventListener("click", (e) => {
   const p = toWorld(e.clientX, e.clientY);
   let best = null, bd = 1e9;
   for (const [id, f] of fishes) {
-    if (!f.hedef.canli) continue;
-    const d = Math.hypot(f.hedef.x - p.x, f.hedef.y - p.y);
-    if (d < radiusOf(f.hedef.kg) + 30 && d < bd) { bd = d; best = id; }
+    if (!f.target.alive) continue;
+    const d = Math.hypot(f.target.x - p.x, f.target.y - p.y);
+    if (d < radiusOf(f.target.kg) + 30 && d < bd) { bd = d; best = id; }
   }
-  for (const [id, f] of fishes) f.gorsel.selRing.visible = id === best;
+  for (const [id, f] of fishes) f.visual.selRing.visible = id === best;
   selectedId = best;
   if (best) renderInspector(best); else insp.style.display = "none";
 });
-// oyuncu girdisi: soketten olay bazlı — değişimde veya 250ms'de bir
-let sonGX = 0, sonGY = 0, sonGDown = false, sonGZaman = 0;
+// player input: send only on change (or a 250 ms keepalive), over the socket
+let lastInX = 0, lastInY = 0, lastInDown = false, lastInAt = 0;
 setInterval(() => {
-  if (rol !== "oyuncu" || !ws || ws.readyState !== 1 || !mouse.has) return;
-  const degisti = mouse.x !== sonGX || mouse.y !== sonGY || mouse.down !== sonGDown;
-  if (!degisti && performance.now() - sonGZaman < 250) return;
-  ws.send(JSON.stringify({ t: "girdi", x: mouse.x, y: mouse.y, down: mouse.down }));
-  sonGX = mouse.x; sonGY = mouse.y; sonGDown = mouse.down; sonGZaman = performance.now();
+  if (role !== "player" || !ws || ws.readyState !== 1 || !mouse.has) return;
+  const changed = mouse.x !== lastInX || mouse.y !== lastInY || mouse.down !== lastInDown;
+  if (!changed && performance.now() - lastInAt < 250) return;
+  ws.send(JSON.stringify({ t: "input", x: mouse.x, y: mouse.y, down: mouse.down }));
+  lastInX = mouse.x; lastInY = mouse.y; lastInDown = mouse.down; lastInAt = performance.now();
 }, 60);
 
-/* ── inceleme paneli (soru-cevap) ──────────────────────── */
+/* ── inspector (human-readable Q&A) ────────────────────── */
 const insp = document.getElementById("inspector");
-insp.innerHTML = '<span class="kapat" onclick="window.__secimTemizle && window.__secimTemizle()">×</span><div id="insp-icerik"></div>';
+insp.innerHTML = '<span class="kapat" onclick="window.__clearSel && window.__clearSel()">×</span><div id="insp-content"></div>';
 function renderInspector(id) {
   const f = fishes.get(id);
   const k = qaMap.get(id);
   if (!f) return;
-  const b = f.hedef;
-  let html = `<h3>${b.ad}</h3><div class="durum">${b.kg} kg · ${b.oyuncu ? "oyuncu (insan)" : "Jev yönetiminde"}</div>`;
-  if (k) html += `<div class="qa"><div class="q">Ne görüyor?</div><div class="gor">👁 ${k.goruyor}</div></div>`;
-  if (!k) { html += "<div class='aciklama'>İlk Jev kararı bekleniyor… (50 balık sırayla soruyor, biraz sürebilir)</div>"; }
+  const b = f.target;
+  let html = `<h3>${b.name}</h3><div class="durum">${b.kg} kg · ${b.player ? "player (human)" : "driven by Jev"}</div>`;
+  if (k) html += `<div class="qa"><div class="q">What does it see?</div><div class="gor">👁 ${k.sees}</div></div>`;
+  if (!k) { html += "<div class='aciklama'>Waiting for the first Jev decision…</div>"; }
   else {
-    html += `<div class="durum">son karar ${k.ms} ms · ${k.kaynak === "jev" ? "jev-1.13" : "yerel yedek"}</div>`;
+    html += `<div class="durum">last decision ${k.ms} ms · ${k.source === "jev" ? "jev-1.13" : "local fallback"}</div>`;
     for (const s of k.qa) {
-      html += `<div class="qa"><div class="q">${s.s}</div><div class="a" style="color:${s.renk || "#9fe8ff"}">${s.c}${s.guven != null ? `<span class="kaynak">güven %${s.guven}</span>` : ""}</div>`;
-      if (s.aciklama) html += `<div class="aciklama">${s.aciklama}</div>`;
-      if (s.secenekler && s.secenekler.length > 1) {
+      html += `<div class="qa"><div class="q">${s.q}</div><div class="a" style="color:${s.color || "#9fe8ff"}">${s.a}${s.confidence != null ? `<span class="conf">confidence ${s.confidence}%</span>` : ""}</div>`;
+      if (s.detail) html += `<div class="detail">${s.detail}</div>`;
+      if (s.options && s.options.length > 1) {
         html += '<div class="opts">';
-        for (const o of s.secenekler) {
-          html += `<div class="opt"><span class="n">${o.ad}</span><span class="bar" style="flex:1"><i style="width:${o.yuzde}%"></i></span><span class="p">%${o.yuzde}</span></div>`;
+        for (const o of s.options) {
+          html += `<div class="opt"><span class="n">${o.name}</span><span class="bar" style="flex:1"><i style="width:${o.pct}%"></i></span><span class="p">${o.pct}%</span></div>`;
         }
         html += "</div>";
       }
       html += "</div>";
     }
   }
-  document.getElementById("insp-icerik").innerHTML = html;
+  document.getElementById("insp-content").innerHTML = html;
   insp.style.display = "block";
 }
-window.__secimTemizle = () => {
-  if (selectedId) { const f = fishes.get(selectedId); if (f) f.gorsel.selRing.visible = false; }
+window.__clearSel = () => {
+  if (selectedId) { const f = fishes.get(selectedId); if (f) f.visual.selRing.visible = false; }
   selectedId = null;
   insp.style.display = "none";
 };
 
-/* ── çizim: anlık görüntüler arası enterpolasyon + yüzler ── */
-function faceFactors(mod, now) {
-  if (mod === "kac") return { mx: .62 + Math.sin(now / 45) * .05, my: .78, eye: .55, ew: 1.15 };
-  if (mod === "yem_ye") return { mx: .6, my: .5 + Math.sin(now / 130) * .18, eye: 1, ew: 1 };
-  if (mod === "avla") return { mx: .75, my: .2, eye: .8, ew: .9 };
+/* ── render: velocity-extrapolated chase + expressive faces ── */
+function faceFactors(mode, now) {
+  if (mode === "flee") return { mx: .62 + Math.sin(now / 45) * .05, my: .78, eye: .55, ew: 1.15 };
+  if (mode === "eat_food") return { mx: .6, my: .5 + Math.sin(now / 130) * .18, eye: 1, ew: 1 };
+  if (mode === "hunt") return { mx: .75, my: .2, eye: .8, ew: .9 };
   return { mx: .5, my: .14, eye: 1, ew: 1 };
 }
 const angLerp = (a, b, t) => {
@@ -506,15 +501,15 @@ const angLerp = (a, b, t) => {
 let last = performance.now();
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = performance.now();
-  // hız-tahminli takip: son iki sunucu karesinden hız çıkar, hedefi kısa süre
-  // ileri tahmin et; görsel konum hedefe üstel olarak yakınsın (asla sıçramaz)
-  const ya = Math.max(0, Math.min(420, Date.now() - curT));
+  // velocity-extrapolated chase: estimate speed from the last two server
+  // frames, aim slightly ahead, and converge exponentially — never a jump
+  const ahead = Math.max(0, Math.min(420, Date.now() - curT));
   for (const [id, f] of fishes) {
-    const b = f.hedef, v = f.gorsel;
-    if (!b.canli) { v.group.visible = false; f._gizli = true; continue; }
-    if (f._gizli) { v.group.visible = false; f._gizli = false; f._dogum = performance.now(); }
-    const dogumT = performance.now() - (f._dogum || 0);
-    if (dogumT < 350) { v.group.visible = false; continue; }   // yeniden doğuşta yumuşak belirme
+    const b = f.target, v = f.visual;
+    if (!b.alive) { v.group.visible = false; f.hidden = true; continue; }
+    if (f.hidden) { v.group.visible = false; f.hidden = false; f.birth = performance.now(); }
+    const birthAge = performance.now() - (f.birth || 0);
+    if (birthAge < 350) { v.group.visible = false; continue; }   // gentle respawn fade-in
     v.group.visible = true;
     const p = snapPrev.get(id) || b;
     const dtMs = Math.max(50, curT - prevT);
@@ -523,14 +518,14 @@ function tick(now) {
       vx = Math.max(-240, Math.min(240, (b.x - p.x) / (dtMs / 1000)));
       vy = Math.max(-240, Math.min(240, (b.y - p.y) / (dtMs / 1000)));
     }
-    const tx = b.x + vx * ya / 1000;
-    const ty = b.y + vy * ya / 1000;
-    const cark = Math.min(1, dt * 5);          // üstel yakınsama: hata ne büyük olursa olsun yumuşak
-    v.group.position.x += (tx - v.group.position.x) * cark;
-    v.group.position.y += (ty - v.group.position.y) * cark;
-    const r = radiusOf(b.kg);
+    const tx = b.x + vx * ahead / 1000;
+    const ty = b.y + vy * ahead / 1000;
+    const chase = Math.min(1, dt * 5);           // exponential convergence: never a jump
+    v.group.position.x += (tx - v.group.position.x) * chase;
+    v.group.position.y += (ty - v.group.position.y) * chase;
     let x = v.group.position.x, y = v.group.position.y;
-    x = Math.max(-W / 2 + r * .5, Math.min(W / 2 - r * .5, x));   // duvardan görüntüde de taşma yok
+    const r = radiusOf(b.kg);
+    x = Math.max(-W / 2 + r * .5, Math.min(W / 2 - r * .5, x));   // never render past the walls
     y = Math.max(-H / 2 + r * .5, Math.min(H / 2 - r * .5, y));
     v.group.position.x = x; v.group.position.y = y;
     const dir = Math.atan2(b.y - (p ? p.y : b.y), b.x - (p ? p.x : b.x));
@@ -538,29 +533,29 @@ function tick(now) {
     v.body.scale.set(1.45 * r, r, 1);
     v.tail.scale.set(.7 * r, .55 * r, 1);
     v.tail.position.x = -1.2 * r;
-    const ff = faceFactors(b.mod, now + b.x);
+    const ff = faceFactors(b.mode, now + b.x);
     v.mouth.scale.set(ff.mx * r, ff.my * r, 1);
     v.mouth.position.set(.95 * r, -.28 * r, .1);
     v.eyeB.scale.setScalar(r * ff.eye);
     v.eyeW.scale.setScalar(r * ff.ew);
     v.ring?.scale.setScalar(r);
     v.selRing.scale.setScalar(r);
-    textSprite(v, "ad", `${b.ad} · ${Math.round(b.kg)} kg`, b.oyuncu ? "#ffd34d" : "#bfe3ff", 1, 0);
-    v.adSprite.position.set(0, r + 26, .4);
-    if (b.etiket && v._sonEtiket !== b.etiket + b.etiketRenk) {
-      v._sonEtiket = b.etiket + b.etiketRenk;
-      setLabel(v, b.etiket + (b.sprint ? " ‼" : ""), b.etiketRenk);
+    textSprite(v, `${b.name} · ${Math.round(b.kg)} kg`, b.player ? "#ffd34d" : "#bfe3ff", 0);
+    v.nameSprite.position.set(0, r + 26, .4);
+    if (b.label && v._lastLabel !== b.label + b.labelColor) {
+      v._lastLabel = b.label + b.labelColor;
+      setLabel(v, b.label + (b.sprint ? " ‼" : ""), b.labelColor);
     }
-    if (!b.etiket && v.label) { v.group.remove(v.label); v.label = null; v._sonEtiket = null; }
+    if (!b.label && v.label) { v.group.remove(v.label); v.label = null; v._lastLabel = null; }
     if (v.label) v.label.position.set(0, r * .62, .5);
     v.tail.rotation.z = Math.PI / 3 + Math.sin(now / (b.sprint ? 55 : 95) + x) * .45;
   }
-  const fark = Math.min(1, dt * 8);
+  const fa = Math.min(1, dt * 8);
   for (const [id, o] of foods) {
     const c = foodCur.get(id);
     if (!c) continue;
-    o.mesh.position.x += (c.x - o.mesh.position.x) * fark;
-    o.mesh.position.y += (c.y - o.mesh.position.y) * fark;
+    o.mesh.position.x += (c.x - o.mesh.position.x) * fa;
+    o.mesh.position.y += (c.y - o.mesh.position.y) * fa;
   }
   for (const b of bubbles) {
     b.position.y += b.userData.v * dt;
@@ -570,11 +565,13 @@ function tick(now) {
   document.getElementById("stat-count").textContent = stats.count;
   renderer.render(scene, camera);
 }
-// rAF arka planda durur (tarayıcı kısıtlaması) — 180ms'lik bekçi zamanlayıcı devralır
 requestAnimationFrame(function frame(now) { tick(now); requestAnimationFrame(frame); });
+// browsers throttle rAF in background tabs — a 180 ms watchdog keeps drawing
 setInterval(() => {
   if (performance.now() - last > 180) tick(performance.now());
 }, 180);
+
+/* ── host panel: reset + player/spectator management ───── */
 const HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 if (HOST) {
   const hostEl = document.createElement("div");
@@ -582,12 +579,12 @@ if (HOST) {
   hostEl.style.cssText = "position:fixed;bottom:46px;right:14px;z-index:20;width:290px;max-height:62vh;overflow-y:auto;font:11px/1.5 ui-monospace,Menlo,monospace;color:#cfe8ff;background:rgba(2,20,38,.85);border:1px solid rgba(255,150,120,.4);border-radius:10px;padding:10px 12px;backdrop-filter:blur(3px)";
   hostEl.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <b style="color:#ffb59f">HOST PANELİ</b>
-      <button id="h-reset" style="background:#ffd34d;color:#42310a;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:700">⟳ SIFIRLA</button>
+      <b style="color:#ffb59f">HOST PANEL</b>
+      <button id="h-reset" style="background:#ffd34d;color:#42310a;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:700">⟳ RESET</button>
     </div>
-    <div id="h-say" style="color:#9fe8ff;margin-bottom:4px">—</div>
-    <div style="color:#8fb6d4;margin:4px 0 2px">OYUNCULAR</div><div id="h-oyuncular"></div>
-    <div style="color:#8fb6d4;margin:6px 0 2px">İZLEYİCİLER</div><div id="h-izleyiciler"></div>`;
+    <div id="h-count" style="color:#9fe8ff;margin-bottom:4px">—</div>
+    <div style="color:#8fb6d4;margin:4px 0 2px">PLAYERS</div><div id="h-players"></div>
+    <div style="color:#8fb6d4;margin:6px 0 2px">SPECTATORS</div><div id="h-spectators"></div>`;
   document.body.appendChild(hostEl);
   document.getElementById("h-reset").onclick = async () => {
     await fetch("/reset", { method: "POST" });
@@ -596,43 +593,43 @@ if (HOST) {
     const conn = e.target.getAttribute("data-kick-conn");
     const tok = e.target.getAttribute("data-kick-token");
     if (conn == null && tok == null) return;
-    await fetch("/yonetim/cikar", { method: "POST", headers: { "Content-Type": "application/json" },
+    await fetch("/manage/remove", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(conn != null ? { connId: +conn } : { token: tok }) });
-    yonetimYenile();
+    refreshManage();
   });
-  async function yonetimYenile() {
+  async function refreshManage() {
     try {
-      const r = await fetch("/yonetim");
+      const r = await fetch("/manage");
       const d = await r.json();
-      const say = document.getElementById("h-say");
-      if (say) say.textContent = `AKTİF: ${d.oyuncular.length} oyuncu · ${d.izleyiciler.length} izleyici`;
-      document.getElementById("h-oyuncular").innerHTML = d.oyuncular.length
-        ? d.oyuncular.map((o) => `<div style="display:flex;justify-content:space-between;gap:6px;margin-top:3px"><span>${o.ad} · ${o.kg}kg</span><button data-kick-token="${o.token}" style="background:rgba(255,120,110,.2);color:#ff9c8f;border:1px solid rgba(255,120,110,.4);border-radius:5px;cursor:pointer;font-size:10px;padding:1px 6px">düşür</button></div>`).join("")
+      const count = document.getElementById("h-count");
+      if (count) count.textContent = `ACTIVE: ${d.players.length} players · ${d.spectators.length} spectators`;
+      document.getElementById("h-players").innerHTML = d.players.length
+        ? d.players.map((o) => `<div style="display:flex;justify-content:space-between;gap:6px;margin-top:3px"><span>${o.name} · ${o.kg}kg</span><button data-kick-token="${o.token}" style="background:rgba(255,120,110,.2);color:#ff9c8f;border:1px solid rgba(255,120,110,.4);border-radius:5px;cursor:pointer;font-size:10px;padding:1px 6px">kick</button></div>`).join("")
         : "<div style='color:#6b8ca8'>—</div>";
-      document.getElementById("h-izleyiciler").innerHTML = d.izleyiciler.length
-        ? d.izleyiciler.map((s) => `<div style="display:flex;justify-content:space-between;gap:6px;margin-top:3px"><span>${s.nick} · ${s.dk}dk</span><button data-kick-conn="${s.connId}" style="background:rgba(255,120,110,.2);color:#ff9c8f;border:1px solid rgba(255,120,110,.4);border-radius:5px;cursor:pointer;font-size:10px;padding:1px 6px">çıkar</button></div>`).join("")
+      document.getElementById("h-spectators").innerHTML = d.spectators.length
+        ? d.spectators.map((s) => `<div style="display:flex;justify-content:space-between;gap:6px;margin-top:3px"><span>${s.nick} · ${s.min}min</span><button data-kick-conn="${s.connId}" style="background:rgba(255,120,110,.2);color:#ff9c8f;border:1px solid rgba(255,120,110,.4);border-radius:5px;cursor:pointer;font-size:10px;padding:1px 6px">remove</button></div>`).join("")
         : "<div style='color:#6b8ca8'>—</div>";
-    } catch { /* yoksay */ }
+    } catch { /* ignore */ }
   }
-  yonetimYenile();
-  setInterval(yonetimYenile, 2500);
+  refreshManage();
+  setInterval(refreshManage, 2500);
 }
 
-/* ── görünür duvarlar: kalın bant + çizgi ──────────────── */
+/* ── visible walls: thick translucent bands ────────────── */
 {
   const T = 6;
-  const duvarParcasi = (x, y, w, h) => {
+  const wallPart = (x, y, w, h) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({ color: 0x69b7ff, transparent: true, opacity: 0.55 }));
     m.position.set(x, y, 0.05);
     scene.add(m);
   };
-  duvarParcasi(0, -H / 2 - T / 2, W + T * 2, T);
-  duvarParcasi(0,  H / 2 + T / 2, W + T * 2, T);
-  duvarParcasi(-W / 2 - T / 2, 0, T, H + T * 2);
-  duvarParcasi( W / 2 + T / 2, 0, T, H + T * 2);
+  wallPart(0, -H / 2 - T / 2, W + T * 2, T);
+  wallPart(0,  H / 2 + T / 2, W + T * 2, T);
+  wallPart(-W / 2 - T / 2, 0, T, H + T * 2);
+  wallPart( W / 2 + T / 2, 0, T, H + T * 2);
 }
-window.__jev = { fishes, qaMap, snapCur, get selectedId() { return selectedId; }, get rol() { return rol; } };
+window.__jev = { fishes, qaMap, snapCur, get selectedId() { return selectedId; }, get role() { return role; } };
 </script>
 </body>
 </html>
