@@ -2,6 +2,8 @@
 
 **A real-time multiplayer fish game where the AI literally decides through a language model.** Every fish on the map asks **[Jev](https://typesafe.ai)** — a *System One* decision model — what to do next: flee, hunt, seek food, or roam. You steer your own fish with the mouse and try to outsmart them.
 
+![JEV — The Fish Game gameplay: a grey Jev fish selected, showing its live Q&A panel with confidence bars](docs/gameplay.png)
+
 ## Why is this interesting?
 
 Most "AI games" call an LLM and parse free text. This one treats AI as a **programming primitive**: Jev never generates text — it returns typed decisions with calibrated probabilities, and plain `if/else` code consumes them:
