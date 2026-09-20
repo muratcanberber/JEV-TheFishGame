@@ -301,10 +301,10 @@ function fallbackDecision(f) {
 
 async function decide(f) {
   f.thinking = true;
-  const payload = buildPayload(f);
-  const meta = payload._meta; delete payload._meta;
-  f._threats = meta.threats;
   try {
+    const payload = buildPayload(f);
+    const meta = payload._meta; delete payload._meta;
+    f._threats = meta.threats;
     const t0 = Date.now();
     const out = await callJev(payload);
     applyDecision(f, payload, out, Date.now() - t0, "jev");
@@ -349,7 +349,12 @@ function steer(f, dt) {
     if (f.mode === "hunt") {
       const p = f.targetId ? entityById(f.targetId) : null;
       const prey = p && p.mass && p.mass < f.mass * 0.8 ? p : nearOf(fishes, f, (o) => o !== f && o.alive && o.mass < f.mass * 0.8, 1)[0]?.o;
-      if (prey) { tx = prey.x; ty = prey.y; speed *= 1.15; } else f.mode = "roam";
+      if (prey) {
+        // avın üstünde oturuyorsan yiyemezsin: bırakıp yem ara (kilitlenme kırıcı)
+        if (dist(f, prey) < radiusOf(f.mass) * 0.6 && (f._oturma || 0) > 1500) f.mode = "eat_food";
+        f._oturma = dist(f, prey) < radiusOf(f.mass) * 0.6 ? (f._oturma || 0) + dt * 1000 : 0;
+        tx = prey.x; ty = prey.y; speed *= 1.15;
+      } else f.mode = "roam";
     }
     if (f.mode === "eat_food") {
       const y = f.targetId ? entityById(f.targetId) : null;
@@ -470,6 +475,24 @@ setInterval(() => {
   const dead = fishes.find((f) => !f.alive);
   if (dead) respawn(dead);
 }, 3000);
+
+// anti-idle watchdog: "balıklar yüzmelidir" — 3 sn'de 12 birimden az
+// kımıldayan AI balığı roam moduna alınır ve itilir
+setInterval(() => {
+  const now = Date.now();
+  for (const f of fishes) {
+    if (!f.alive || f.isPlayer || f.thinking) continue;
+    if (!f._olcum || now - f._olcum.t >= 3000) {
+      const moved = f._olcum ? Math.hypot(f.x - f._olcum.x, f.y - f._olcum.y) : 999;
+      if (moved < 12) {
+        f.mode = "roam"; f.targetId = null; f.threatId = null; f.sprint = false;
+        f._wa = rnd(0, Math.PI * 2);
+        f.vx += Math.cos(f._wa) * 70; f.vy += Math.sin(f._wa) * 70;
+      }
+      f._olcum = { t: now, x: f.x, y: f.y };
+    }
+  }
+}, 1500);
 
 /* ── WebSocket real-time layer ─────────────────────────── */
 const sessions = new Map();   // connId → sess
@@ -705,6 +728,8 @@ server.on("upgrade", (req, socket, head) => {
     ws.on("error", () => sessions.delete(sess.connId));
   });
 });
+
+process.on("unhandledRejection", (e) => console.log("[unhandled]", (e && e.message) || e));
 
 server.listen(PORT, () => {
   console.log("JEV — The Fish Game: http://localhost:%d  (key %s, %d AI fish)",
