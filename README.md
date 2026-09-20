@@ -21,8 +21,8 @@
 ## Kurulum
 
 ```bash
-git clone https://github.com/muratcanberber/jev-balik-oyunu.git
-cd jev-balik-oyunu
+git clone https://github.com/muratcanberber/JEV-TheFishGame.git
+cd JEV-TheFishGame
 npm install
 
 # 1) TypeSafe anahtarını .env'e koy (repo buna benzer .env.example içerir)

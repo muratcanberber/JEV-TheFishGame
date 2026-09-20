@@ -1,5 +1,5 @@
 {
-  "name": "jev-balik-oyunu",
+  "name": "JEV-TheFishGame",
   "version": "1.0.0",
   "description": "Kararlarini TypeSafe Jev (System One) veren cok oyunculu Three.js balik oyunu",
   "main": "server.js",
