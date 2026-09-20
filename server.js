@@ -453,8 +453,10 @@ setInterval(() => {
   for (const f of fishes) {
     if (!f.alive) continue;
     steer(f, dt);
-    f.x = clamp(f.x + f.vx * dt, -W / 2 + 30, W / 2 - 30);
-    f.y = clamp(f.y + f.vy * dt, -H / 2 + 30, H / 2 - 30);
+    // gövdenin TAMAMI duvar içinde: kelepçe yarıçapa duyarlı
+    const r = radiusOf(f.mass);
+    f.x = clamp(f.x + f.vx * dt, -W / 2 + r * 0.9 + 8, W / 2 - r * 0.9 - 8);
+    f.y = clamp(f.y + f.vy * dt, -H / 2 + r * 0.9 + 8, H / 2 - r * 0.9 - 8);
     if (Math.hypot(f.vx, f.vy) > 8) f.dir = Math.atan2(f.vy, f.vx);
     tryEat(f);
     spikeCheck(f);

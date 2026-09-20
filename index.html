@@ -109,6 +109,7 @@ import * as THREE from "three";
 
 /* ── scene ─────────────────────────────────────────────── */
 const W = 1900, H = 1150;
+let viewScale = 1;   // kamera ölçeği — resize günceller, fare↔dünya dönüşümü okur
 const scene = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 camera.position.z = 10;
@@ -119,6 +120,7 @@ function resize() {
   renderer.setSize(vw, vh);
   // keep the wall frame fully on screen: leave margins around the world
   const s = Math.min((vw - 48) / W, (vh - 96) / H);
+  viewScale = s;   // fare↔dünya dönüşümü aynı ölçeği kullanır
   camera.left = -vw / (2 * s); camera.right = vw / (2 * s);
   camera.top = vh / (2 * s); camera.bottom = -vh / (2 * s);
   camera.updateProjectionMatrix();
@@ -414,8 +416,7 @@ function start(roleNow) {
 /* ── player input: event-driven over the socket ────────── */
 function toWorld(cx, cy) {
   const vw = innerWidth, vh = innerHeight;
-  const s = Math.min(vw / W, vh / H);
-  return { x: (cx - vw / 2) / s, y: -(cy - vh / 2) / s, s };
+  return { x: (cx - vw / 2) / viewScale, y: -(cy - vh / 2) / viewScale, s: viewScale };
 }
 const mouse = { x: 0, y: 0, down: false, has: false };
 let downAt = null;
