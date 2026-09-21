@@ -39,11 +39,15 @@ git clone https://github.com/muratcanberber/JEV-TheFishGame.git
 cd JEV-TheFishGame
 npm install
 
-cp .env.example .env        # then paste your key from console.typesafe.ai
+# 1) start the local decision bridge (runs the laya-mlx model, ~75 ms/call,
+#    no external API, no key). Needs the laya-mlx venv:
+/path/to/laya-mlx/.venv/bin/python laya-bridge.py &
+
+# 2) start the game
 npm start                   # → http://localhost:8787
 ```
 
-> No key? The game still runs — all AI fish fall back to a local rule-based brain, and the HUD marks their decisions as "local".
+> Bridge not running? The game still plays — all AI fish fall back to a local rule-based brain, and the HUD marks their decisions as "fallback". If you prefer the hosted TypeSafe Jev API instead, the older `callJev` engine is in the git history (commit `b2d9e19`).
 
 **Controls:** mouse steers · hold to boost · click a fish to read its Jev Q&A · bottom-left button to change your nickname or role.
 
@@ -75,7 +79,7 @@ Thresholds, wall & spike avoidance, and all game policy live in **code** — the
 
 ## Performance
 
-5 AI fish ≈ **70 decisions/min** (TypeSafe limit: 1,200/min) ≈ **$0.10/hour**. World frame ≈ 1.5 KB × 10 Hz — dozens of spectators are trivial.
+5 AI fish ≈ **70 decisions/min** served by the **local laya-mlx model (~75 ms/call, $0)**. World frame ≈ 1.5 KB × 10 Hz — dozens of spectators are trivial.
 
 ## Share it
 

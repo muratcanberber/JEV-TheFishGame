@@ -329,7 +329,7 @@ const foodPrev = new Map(), foodCur = new Map();
 
 /* ── WebSocket transport: one persistent socket, server pushes ── */
 function decisionClass(k) {
-  return k.source === "jev" ? ({ "FLEEING": "flee", "HUNTING": "hunt", "SEEKING FOOD": "eat_food", "ROAMING": "roam" }[k.qa?.[0]?.a] || "roam") : "local";
+  return k.source === "laya" ? ({ "FLEEING": "flee", "HUNTING": "hunt", "SEEKING FOOD": "eat_food", "ROAMING": "roam" }[k.qa?.[0]?.a] || "roam") : "local";
 }
 let ws = null;
 let pendingJoin = null;
@@ -393,8 +393,8 @@ function bindSocket(socket) {
     } else if (d.t === "decision") {
       const k = d;
       qaMap.set(k.id, k);
-      if (k.source === "jev") { stats.count++; stats.latSum += k.ms; stats.latN++; }
-      feedAdd(decisionClass(k), `${k.name} → ${k.qa?.[0]?.a || ""}${k.source === "jev" ? ` (${k.ms}ms)` : " (local)"}`);
+      if (k.source === "laya") { stats.count++; stats.latSum += k.ms; stats.latN++; }
+      feedAdd(decisionClass(k), `${k.name} → ${k.qa?.[0]?.a || ""}${k.source === "laya" ? ` (${k.ms}ms)` : " (fallback)"}`);
       const f = fishes.get(k.id);
       if (f) {
         const b = snapCur.get(k.id);
@@ -535,7 +535,7 @@ function renderInspector(id) {
   if (k) html += `<div class="qa"><div class="q">What does it see?</div><div class="gor">👁 ${k.sees}</div></div>`;
   if (!k) { html += "<div class='aciklama'>Waiting for the first Jev decision…</div>"; }
   else {
-    html += `<div class="durum">last decision ${k.ms} ms · ${k.source === "jev" ? "jev-1.13" : "local fallback"}</div>`;
+    html += `<div class="durum">last decision ${k.ms} ms · ${k.source === "laya" ? "laya (local)" : "local fallback"}</div>`;
     for (const s of k.qa) {
       html += `<div class="qa"><div class="q">${s.q}</div><div class="a" style="color:${s.color || "#9fe8ff"}">${s.a}${s.confidence != null ? `<span class="conf">confidence ${s.confidence}%</span>` : ""}</div>`;
       if (s.detail) html += `<div class="detail">${s.detail}</div>`;

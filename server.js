@@ -3,17 +3,15 @@
 // every decision. Spectators watch a single shared world over one persistent socket.
 //
 // Run: node server.js  →  http://localhost:8787
-// Key:  .env (TYPESAFE_API_KEY=...) or environment variable. Never committed.
+// Engine: local laya-mlx bridge (laya-bridge.py) — no external API, no key.
 
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const https = require("https");
 const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8787;
-const API_URL = "https://api.typesafe.ai/v1/systemone";
 const MAX_CONCURRENT = 3;          // parallel Jev calls
 const W = 1900, H = 1150;          // world size (world units)
 const AI_COUNT = 5;                // Jev-controlled fish
@@ -42,24 +40,7 @@ const SPECIES = [
 ];
 const SPIKE_COUNT = 7;             // mines: touching one makes the fish explode into food
 
-/* ── Jev bridge ────────────────────────────────────────── */
-// The API key is read ONLY from .env or the environment — never committed.
-function readEnvFile() {
-  try {
-    const out = {};
-    for (const line of fs.readFileSync(path.join(__dirname, ".env"), "utf8").split("\n")) {
-      const t = line.trim();
-      if (!t || t.startsWith("#")) continue;
-      const m = t.match(/^([A-Z_]+)\s*=\s*(.*)$/);
-      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
-    }
-    return out;
-  } catch { return {}; }
-}
-function readKey() {
-  if (process.env.TYPESAFE_API_KEY) return process.env.TYPESAFE_API_KEY;
-  return readEnvFile().TYPESAFE_API_KEY || null;
-}
+/* ── decision bridge (local laya-mlx) ──────────────────── */
 let inFlight = 0;
 const waiters = [];
 function acquire() {
@@ -72,19 +53,19 @@ function release() {
   const next = waiters.shift();
   if (next) { inFlight++; next(); }
 }
-function callJev(payload) {
+const LAYA_URL = process.env.LAYA_URL || "http://127.0.0.1:8791/predict";
+
+// Local laya-mlx bridge: same typed-decision response shape as the old API
+function callLaya(payload) {
   return new Promise((resolve, reject) => {
-    const key = readKey();
-    if (!key) return reject(new Error("missing API key"));
-    const body = JSON.stringify({ ...payload, model: payload.model || "jev-latest" });
-    const req = https.request(API_URL, {
+    const body = JSON.stringify(payload);
+    const req = http.request(LAYA_URL, {
       method: "POST",
       headers: {
-        "Authorization": "Bearer " + key,
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(body),
       },
-      timeout: 15000,
+      timeout: 8000,
     }, (res) => {
       let data = "";
       res.on("data", (c) => { data += c; if (data.length > 262144) req.destroy(); });
@@ -312,7 +293,7 @@ function applyDecision(f, payload, out, ms, source) {
   }
   f.arrow = arrowFromAngle(ang);
   f.labelAt = Date.now();
-  if (source === "jev") { stats.count++; stats.latSum += ms; stats.latN++; } else stats.fallback++;
+  if (source === "laya") { stats.count++; stats.latSum += ms; stats.latN++; } else stats.fallback++;
   const qa = readableQA(f, payload, out, ms, source);
   decisions.set(f.id, qa);
   fanout("decision", qa);
@@ -337,8 +318,8 @@ async function decide(f) {
     const meta = payload._meta; delete payload._meta;
     f._threats = meta.threats;
     const t0 = Date.now();
-    const out = await callJev(payload);
-    applyDecision(f, payload, out, Date.now() - t0, "jev");
+    const out = await callLaya(payload);
+    applyDecision(f, payload, out, Date.now() - t0, "laya");
   } catch {
     fallbackDecision(f);
     applyDecision(f, payload, {
@@ -704,7 +685,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && url === "/healthz") {
     return send(res, 200, {
-      ok: true, hasKey: !!readKey(), ws: sessions.size,
+      ok: true, engine: "laya-local", ws: sessions.size,
       decisions: stats.count, players: tokens.size, jev: aktifKatilimVar(),
     });
   }
