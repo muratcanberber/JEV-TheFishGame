@@ -533,7 +533,9 @@ function renderInspector(id) {
   let html = `<h3>${b.name}</h3><div class="durum">${Math.round(b.kg * 1000)} g${turAd ? " · " + turAd : " · player"} · ${b.player ? "human" : "Jev-driven"}</div>`;
   if (b.ozellik) html += `<div class="detail">✦ ${b.ozellik}</div>`;
   if (k) html += `<div class="qa"><div class="q">What does it see?</div><div class="gor">👁 ${k.sees}</div></div>`;
-  if (!k) { html += "<div class='aciklama'>Waiting for the first Jev decision…</div>"; }
+  if (b.player) {
+    html += "<div class='qa'><div class='q'>Why no Jev decisions?</div><div class='detail'>This fish is a player — a human is steering it. Jev only decides for the grey AI fish; click one of those to read its Q&A.</div></div>";
+  } else if (!k) { html += "<div class='aciklama'>Waiting for the first Jev decision… it usually arrives within a few seconds.</div>"; }
   else {
     html += `<div class="durum">last decision ${k.ms} ms · ${k.source === "laya" ? "laya (local)" : "local fallback"}</div>`;
     for (const s of k.qa) {

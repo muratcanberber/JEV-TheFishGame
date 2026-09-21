@@ -313,16 +313,24 @@ function fallbackDecision(f) {
 
 async function decide(f) {
   f.thinking = true;
+  let payload = null;
   try {
-    const payload = buildPayload(f);
+    payload = buildPayload(f);
     const meta = payload._meta; delete payload._meta;
     f._threats = meta.threats;
     const t0 = Date.now();
     const out = await callLaya(payload);
     applyDecision(f, payload, out, Date.now() - t0, "laya");
-  } catch {
+  } catch (e) {
+    console.log("[decide]", f.name, "→", e.message);
     fallbackDecision(f);
-    applyDecision(f, payload, {
+    // yedek karar için minimal istek: okunabilir Q&A bozulmasın
+    const synth = {
+      state: { me: { name: f.name, mass_kg: +f.mass.toFixed(2) },
+               surroundings: { foods: [], prey: [], threats: [], spikes: [] } },
+      questions: { hedef: { criteria: {} } },
+    };
+    applyDecision(f, synth, {
       answers: {
         action: { choice: f.mode, probabilities: null, confidence: null },
         target: { choice: f.targetId || "none" },
@@ -782,6 +790,6 @@ server.on("upgrade", (req, socket, head) => {
 process.on("unhandledRejection", (e) => console.log("[unhandled]", (e && e.message) || e));
 
 server.listen(PORT, () => {
-  console.log("JEV — The Fish Game: http://localhost:%d  (key %s, %d AI fish)",
-    PORT, readKey() ? "loaded" : "MISSING", AI_COUNT);
+  console.log("JEV — The Fish Game: http://localhost:%d  (decision engine: Laya @ %s, %d AI fish)",
+    PORT, LAYA_URL, AI_COUNT);
 });
