@@ -493,6 +493,8 @@ setInterval(() => {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   for (const f of fishes) {
     if (f.isPlayer || !f.alive || f.thinking) continue;
+    // Jev çağrısı yalnızca en az bir kişi katıldıysa başlar (token tasarrufu)
+    if (!aktifKatilimVar()) continue;
     if (now >= f.nextThink) { f.thinking = true; decide(f); }
   }
   for (const f of fishes) {
@@ -561,6 +563,11 @@ setInterval(() => {
 const sessions = new Map();   // connId → sess
 let connSeq = 0;
 const spectatorCount = () => [...sessions.values()].filter((s) => !s.player).length;
+// en az biri "Play"/"Watch" ile katıldıysa true — anonim açık sekmeler sayılmaz
+function aktifKatilimVar() {
+  for (const s of sessions.values()) if (s.joined) return true;
+  return false;
+}
 
 function fanout(event, data) {
   const msg = JSON.stringify({ t: event, ...data });
@@ -573,6 +580,7 @@ setInterval(() => {
   fanout("state", {
     serverTime: Date.now(),
     v: currentVersion(),
+    jev: aktifKatilimVar(),
     players: tokens.size, playerLimit: MAX_PLAYERS,
     spectators: spectatorCount(),
     spectatorNames: [...sessions.values()].filter((s) => !s.player && s.nick).map((s) => s.nick).slice(0, 30),
@@ -697,7 +705,7 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && url === "/healthz") {
     return send(res, 200, {
       ok: true, hasKey: !!readKey(), ws: sessions.size,
-      decisions: stats.count, players: tokens.size,
+      decisions: stats.count, players: tokens.size, jev: aktifKatilimVar(),
     });
   }
   if (isLocal(req) && req.method === "GET" && url === "/manage") {

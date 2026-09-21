@@ -361,7 +361,8 @@ function bindSocket(socket) {
           return;
         }
       }
-      document.getElementById("stat-key").textContent = "connected (socket)";
+      document.getElementById("stat-key").textContent =
+        d.jev === false ? "connected (socket) · Jev standby" : "connected (socket)";
       document.getElementById("stat-players").textContent = `${d.players}/${d.playerLimit}`;
       document.getElementById("stat-spectators").textContent = d.spectators;
       document.getElementById("stat-spectator-names").textContent = d.spectatorNames.length ? "· " + d.spectatorNames.join(", ") : "";
