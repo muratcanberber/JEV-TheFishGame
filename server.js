@@ -177,10 +177,10 @@ function buildPayload(f) {
   };
   const spikesNear = nearOf(spikes, f, () => true, 2)
     .map(({ o, d }) => ({ distance: Math.round(d), direction: bearing(f, o) }));
-  const targetCriteria = { none: "No obvious target — roam freely" };
-  foodsNear.forEach((y) => targetCriteria[y.id] = `food pellet, ${y.distance} units to the ${y.direction}`);
-  prey.forEach((b) => targetCriteria[b.id] = `prey at ${b.size_ratio}x your size, ${b.distance} units to the ${b.direction}`);
-  threats.forEach((b) => targetCriteria["flee_" + b.id] = `${b.id} is a threat ${b.distance} units to the ${b.direction}; open distance instead`);
+  const targetCriteria = { none: "roam" };
+  foodsNear.forEach((y) => targetCriteria[y.id] = `food, ${y.distance}u ${y.direction}`);
+  prey.forEach((b) => targetCriteria[b.id] = `prey, ${b.size_ratio}x, ${b.distance}u ${b.direction}`);
+  threats.forEach((b) => targetCriteria["flee_" + b.id] = `threat ${b.distance}u ${b.direction}; flee it`);
   const aclik = +(1 - f.enerji).toFixed(2);   // 0 = tok, 1 = aç
   return {
     state: {
@@ -200,20 +200,20 @@ function buildPayload(f) {
     questions: {
       action: {
         type: "choice",
-        instructions: "What should the fish in `me` do next? Your drives: eat, survive, avoid being eaten. Use `me.hunger_pct` and the `surroundings` data.",
+        instructions: "Next move for the fish in `me`? Drives: eat, survive, avoid being eaten.",
         criteria: {
-          flee: "if `surroundings.threats` is not empty, survive first; if a `surroundings.walls` value is below 200, slide parallel to the wall instead of getting cornered; keep `surroundings.spikes` distance above 200 when picking an escape direction",
-          hunt: "if `me.mass_kg` is above 2 and `me.hunger_pct` is above 0.4, you MUST hunt when `surroundings.prey` has targets — pellets cannot sustain a large fish. Otherwise hunt when hunger is above 0.4 and there is no immediate threat/spike risk",
-          eat_food: "if `me.hunger_pct` is above 0.35 and `surroundings.foods` has pellets reachable without crossing a spike, eat them",
-          roam: "if hunger is low (below 0.35) and there is no prey, food or threat nearby, explore",
+          flee: "a threat is close — escape, slide along walls, keep 200u from spikes",
+          hunt: "hunger above 0.4 and safe prey available — chase it",
+          eat_food: "hunger above 0.35 and a pellet is reachable safely",
+          roam: "low hunger, nothing nearby — explore",
         },
       },
       target: {
         type: "choice",
-        instructions: "Which object should this move focus on? Pick one id from `surroundings`.",
+        instructions: "One id from `surroundings` to focus on.",
         criteria: targetCriteria,
       },
-      panic: { type: "noul", instructions: "Judging by `surroundings.threats` distances, is this fish threatened enough to speed up?" },
+      panic: { type: "noul", instructions: "Is the nearest threat close enough to speed up?" },
     },
     _meta: { threats },
   };

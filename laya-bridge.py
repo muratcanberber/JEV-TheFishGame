@@ -8,7 +8,8 @@ Body:     {"state": {...}, "questions": {...}}
 Response: {"model": "laya-rl-agent", "answers": {...}, "usage": {...}}
 """
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from laya_mlx import load
 
@@ -17,6 +18,10 @@ PORT = 8791
 print("laya modeli yükleniyor...")
 agent = load("aac6fef/laya-multilingual-mlx")
 print("laya hazır → http://127.0.0.1:%d/predict" % PORT)
+
+# MLX predict aynı anda tek çağrı güvenli: HTTP paralel kabul eder,
+# model çağrısı kilit ile sıralanır (kuyrukta bekleyen istekler iş parçacığında uyur)
+_predict_lock = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -28,7 +33,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
-            res = agent.predict(body.get("state", {}), body.get("questions", {}))
+            with _predict_lock:
+                res = agent.predict(body.get("state", {}), body.get("questions", {}))
             out = json.dumps(res).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -48,4 +54,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # tek iş parçacıklı: MLX predict aynı anda tek çağrı güvenli olsun
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
